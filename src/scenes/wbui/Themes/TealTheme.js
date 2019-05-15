@@ -60,6 +60,28 @@ export default createMuiTheme({
           icon: {
             color: { default: teal[200], hover: teal[100] }
           }
+        },
+        downloads: {
+          icon: {
+            color: { default: teal[200], hover: teal[100] }
+          }
+        },
+        busy: {
+          icon: {
+            color: { default: teal[200] }
+          }
+        },
+        mailbox: {
+          activeIndicator: {
+            bar: {
+              active: teal[50],
+              hover: teal[50]
+            },
+            banner: {
+              active: '#045F56',
+              hover: '#045F56'
+            }
+          }
         }
       },
       toolbar: {

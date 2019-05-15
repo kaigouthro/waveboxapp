@@ -11,7 +11,7 @@ import { platformStore, platformActions } from 'stores/platform'
 import { accountStore, accountActions } from 'stores/account'
 import { userStore, userActions } from 'stores/user'
 import { emblinkStore, emblinkActions } from 'stores/emblink'
-import { notifhistStore, notifhistActions } from 'stores/notifhist'
+import { localHistoryStore, localHistoryActions } from 'stores/localHistory'
 import { guestStore, guestActions } from 'stores/guest'
 import ipcEvents from 'shared/ipcEvents'
 import BasicHTTPAuthHandler from 'HTTPAuth/BasicHTTPAuthHandler'
@@ -30,9 +30,9 @@ import { LinuxNotification } from 'Notifications'
 import WaveboxCommandArgs from './WaveboxCommandArgs'
 import { AppSettings, TraySettings } from 'shared/Models/Settings'
 import WaveboxDataManager from './WaveboxDataManager'
-import mailboxStorage from 'Storage/mailboxStorage'
 import constants from 'shared/constants'
 import CrashReporterWatcher from 'shared/CrashReporter/CrashReporterWatcher'
+import WaveboxAppCommandKeyTracker from './WaveboxAppCommandKeyTracker'
 
 const privStarted = Symbol('privStarted')
 const privArgv = Symbol('privArgv')
@@ -101,22 +101,19 @@ class WaveboxApp {
     this[privStarted] = true
     this[privArgv] = yargs.parse(process.argv)
 
-    // Do any data migration
-    mailboxStorage.startMigration()
-
     // Start our stores
+    userStore.getState()
+    userActions.load()
     accountStore.getState()
     accountActions.load()
     settingsStore.getState()
     settingsActions.load()
     platformStore.getState()
     platformActions.load()
-    userStore.getState()
-    userActions.load()
     emblinkStore.getState()
     emblinkActions.load()
-    notifhistStore.getState()
-    notifhistActions.load()
+    localHistoryStore.getState()
+    localHistoryActions.load()
     guestStore.getState()
     guestActions.load()
 
@@ -145,6 +142,7 @@ class WaveboxApp {
     AccountSessionManager.start()
     ExtensionSessionManager.start()
     ServicesManager.load()
+    WaveboxAppCommandKeyTracker.start()
 
     // Setup the environment
     this._configureEnvironment()
@@ -173,6 +171,10 @@ class WaveboxApp {
     app.on('certificate-error', this._handleCertificateError)
     app.on('will-quit', this._handleWillQuit)
     app.on('second-instance', this._handleSecondInstance)
+
+    evtMain.on(evtMain.WB_QUIT_APP, this.fullyQuitApp)
+    evtMain.on(evtMain.WB_RELAUNCH_APP, this.restartApp)
+    evtMain.on(evtMain.WB_RELAUNCH_APP_SAFE, this.restartAppSafe)
   }
 
   /* ****************************************************************************/
@@ -197,8 +199,23 @@ class WaveboxApp {
       app.disableHardwareAcceleration()
     }
     app.commandLine.appendSwitch('wavebox-server', constants.SERVER_URL)
+    switch (launchSettings.app.proxyMode) {
+      case AppSettings.PROXY_MODES.DISABLED:
+        app.commandLine.appendSwitch('no-proxy-server', 'true')
+        break
+      case AppSettings.PROXY_MODES.HTTP_MANUAL:
+      case AppSettings.PROXY_MODES.SOCKS_MANUAL:
+        const configStr = launchSettings.app.manualProxyString
+        if (configStr) {
+          app.commandLine.appendSwitch('proxy-server', configStr)
+        }
+        break
+      default:
+        break
+    }
 
     process.env.GOOGLE_API_KEY = credentials.GOOGLE_API_KEY
+    process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = true
 
     if (AppSettings.SUPPORTS_MIXED_SANDBOX_MODE) {
       if (launchSettings.app.enableMixedSandboxMode && this[privArgv].safemode !== true) {
@@ -237,7 +254,6 @@ class WaveboxApp {
 
     ipcMain.on(ipcEvents.WB_QUIT_APP, this.fullyQuitApp)
     ipcMain.on(ipcEvents.WB_RELAUNCH_APP, this.restartApp)
-    evtMain.on(evtMain.WB_RELAUNCH_APP_SAFE, this.restartAppSafe)
     ipcMain.on(ipcEvents.WB_CLEAN_EXPIRED_SESSIONS, () => WaveboxDataManager.cleanExpiredSessions())
 
     ipcMain.on(ipcEvents.WB_SQUIRREL_UPDATE_CHECK, (evt, data) => {

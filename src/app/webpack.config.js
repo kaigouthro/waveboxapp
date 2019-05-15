@@ -27,8 +27,10 @@ module.exports = function (env) {
       return acc
     }, {}),
     plugins: [
-      new CleanWebpackPlugin(['app'], {
-        root: BIN_DIR,
+      new CleanWebpackPlugin({
+        cleanOnceBeforeBuildPatterns: [
+          path.join(BIN_DIR, 'app')
+        ],
         verbose: isVerboseLog,
         dry: false
       }),
@@ -57,6 +59,7 @@ module.exports = function (env) {
         Extensions: path.resolve(path.join(__dirname, 'src/Extensions')),
         HTTP: path.resolve(path.join(__dirname, 'src/HTTP')),
         HTTPAuth: path.resolve(path.join(__dirname, 'src/HTTPAuth')),
+        IEngine: path.resolve(path.join(__dirname, 'src/IEngine')),
         LinkOpener: path.resolve(path.join(__dirname, 'src/LinkOpener')),
         Notifications: path.resolve(path.join(__dirname, 'src/Notifications')),
         Permissions: path.resolve(path.join(__dirname, 'src/Permissions')),

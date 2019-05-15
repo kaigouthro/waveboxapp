@@ -1,6 +1,4 @@
-import { ipcRenderer } from 'electron'
-import { WCRPC_SYNC_GET_GUEST_PRELOAD_CONFIG } from 'shared/webContentsRPC'
-import { URL } from 'whatwg-url'
+import WBRPCRenderer from 'shared/WBRPCRenderer'
 
 const privConfig = Symbol('privConfig')
 
@@ -19,7 +17,7 @@ class LiveConfig {
 
   get config () {
     if (this[privConfig] === null) {
-      this[privConfig] = Object.freeze(ipcRenderer.sendSync(WCRPC_SYNC_GET_GUEST_PRELOAD_CONFIG, window.location.href))
+      this[privConfig] = Object.freeze(WBRPCRenderer.wavebox.getGuestPreloadConfigSync())
     }
     return this[privConfig]
   }
@@ -32,7 +30,7 @@ class LiveConfig {
   get launchUserSettings () { return this.config.launchUserSettings }
   get extensions () { return this.config.extensions }
   get permissionRootUrl () {
-    const purl = new URL(this.hostUrl || 'about:blank')
+    const purl = new window.URL(this.hostUrl || 'about:blank')
     const host = purl.host.startsWith('www.') ? purl.host.replace('www.', '') : purl.host
     return `${purl.protocol}//${host}`
   }
@@ -48,6 +46,8 @@ class LiveConfig {
   get platform () { return this.config.platform }
   get arch () { return this.config.arch }
   get osRelease () { return this.config.osRelease }
+  get iEngine () { return this.config.iEngine }
+  get hasIEngine () { return !!this.iEngine }
 }
 
 export default new LiveConfig()

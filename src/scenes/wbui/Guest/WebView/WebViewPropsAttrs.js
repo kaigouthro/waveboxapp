@@ -3,6 +3,7 @@ import PropTypes from 'prop-types'
 
 const WEBVIEW_EVENTS = [
   'load-commit',
+  'did-attach',
   'did-finish-load',
   'did-fail-load',
   'did-frame-finish-load',
@@ -24,8 +25,6 @@ const WEBVIEW_EVENTS = [
   'gpu-crashed',
   'plugin-crashed',
   'destroyed',
-  'focus',
-  'blur',
   'update-target-url',
   'will-navigate',
   'did-change-theme-color'

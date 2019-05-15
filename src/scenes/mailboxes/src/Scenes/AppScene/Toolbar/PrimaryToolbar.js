@@ -206,12 +206,14 @@ class PrimaryToolbar extends React.Component {
   * @param evt: the event that fired
   */
   handleOpenContextMenu = (evt) => {
-    this.setState({
-      contextMenuAnchor: {
-        anchor: evt.target,
-        anchorPosition: { top: evt.clientY, left: evt.clientX }
-      }
-    })
+    if (evt.target.tagName !== 'INPUT') {
+      this.setState({
+        contextMenuAnchor: {
+          anchor: evt.target,
+          anchorPosition: { top: evt.clientY, left: evt.clientX }
+        }
+      })
+    }
     if (this.props.onContextMenu) {
       this.props.onContextMenu(evt)
     }
@@ -280,6 +282,7 @@ class PrimaryToolbar extends React.Component {
             className={classes.navigation}
             tabId={activeTabId}
             toolbarHeight={toolbarHeight}
+            fullWidthAddress={false}
             mailboxId={mailboxId}
             serviceId={serviceId} />
         ) : undefined}
@@ -300,6 +303,7 @@ class PrimaryToolbar extends React.Component {
         </div>
         <ToolbarContextMenu
           location='toolbar'
+          mailboxId={mailboxId}
           {...(contextMenuAnchor ? {
             isOpen: true,
             anchor: contextMenuAnchor.anchor,

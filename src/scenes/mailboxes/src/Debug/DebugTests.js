@@ -1,57 +1,12 @@
+import DebugSlackCount from './DebugSlackCount'
+
 class DebugTests {
   /* **************************************************************************/
-  // Google Sync
+  // Lifecycle
   /* **************************************************************************/
 
-  /**
-  * Fetches a set of unread messages so they can be compared against the ones that
-  * are being searched for
-  */
-  fetchGoogleUnreadMessageLabels () {
-    // Always late require to prevent cyclic references
-    const accountStore = require('stores/account/accountStore').default
-    const GoogleHTTP = require('stores/google/GoogleHTTP').default
-    const SERVICE_TYPES = require('shared/Models/ACAccounts/ServiceTypes').default
-
-    const sig = '[TEST:GOOGLE_LABELS]'
-    console.log(`${sig} start`)
-    const accountState = accountStore.getState()
-    const services = [].concat(
-      accountState.allServicesOfType(SERVICE_TYPES.GOOGLE_INBOX),
-      accountState.allServicesOfType(SERVICE_TYPES.GOOGLE_MAIL)
-    )
-    console.log(`${sig} found ${services.length} Google Mailboxes`)
-
-    services.reduce((acc, service) => {
-      const serviceAuth = accountState.getMailboxAuthForServiceId(service.id)
-      let auth = null
-      return acc
-        .then(() => GoogleHTTP.generateAuth(serviceAuth.accessToken, serviceAuth.refreshToken, serviceAuth.authExpiryTime))
-        .then((fetchedAuth) => {
-          auth = fetchedAuth
-          return Promise.resolve()
-        })
-        .then(() => GoogleHTTP.fetchGmailThreadHeadersList(auth, 'label:inbox label:unread', undefined, 100))
-        .then(({ threads = [] }) => {
-          return GoogleHTTP.fullyResolveGmailThreadHeaders(auth, {}, threads, (t) => t)
-        })
-        .then((threads) => {
-          const info = threads.map((thread) => {
-            const labels = thread.messages.reduce((acc, message) => {
-              message.labelIds.forEach((labelId) => {
-                acc.add(labelId)
-              })
-              return acc
-            }, new Set())
-            return {
-              labels: Array.from(labels),
-              snippet: thread.messages[thread.messages.length - 1].snippet
-            }
-          })
-          const infoStrings = info.map((i) => i.labels.join(',') + ': ' + i.snippet)
-          console.log(`${sig} ${service.displayName} unread messages:\n`, infoStrings.join('\n\n'))
-        })
-    }, Promise.resolve())
+  constructor () {
+    this.debugSlackCount = new DebugSlackCount()
   }
 
   /* **************************************************************************/
@@ -140,7 +95,7 @@ class DebugTests {
   fetchMicrosoftUnreadMessageList () {
     // Always late require to prevent cyclic references
     const accountStore = require('stores/account/accountStore').default
-    const MicrosoftHTTP = require('stores/microsoft/MicrosoftHTTP').defaut
+    const MicrosoftHTTP = require('stores/microsoft/MicrosoftHTTP').default
     const SERVICE_TYPES = require('shared/Models/ACAccounts/ServiceTypes').default
 
     const sig = '[TEST:MICROSOFT_MESSAGES]'
@@ -167,6 +122,134 @@ class DebugTests {
     }, Promise.resolve())
   }
 
+  /**
+  * Authenticates a new microsoft account and marks all unread emails in the inbox read
+  */
+  markAllMicrosoftInboxEmailsRead (userIndex = undefined) {
+    const accountStore = require('stores/account/accountStore').default
+    const accountActions = require('stores/account/accountActions').default
+    const { ipcRenderer } = require('electron')
+    const SERVICE_TYPES = require('shared/Models/ACAccounts/ServiceTypes').default
+    const Bootstrap = require('R/Bootstrap').default
+    const CoreACAuth = require('shared/Models/ACAccounts/CoreACAuth').default
+    const MicrosoftHTTP = require('stores/microsoft/MicrosoftHTTP').default
+    const MicrosoftMailService = require('shared/Models/ACAccounts/Microsoft/MicrosoftMailService').default
+    const { WB_AUTH_MICROSOFT, WB_AUTH_MICROSOFT_COMPLETE, WB_AUTH_MICROSOFT_ERROR } = require('shared/ipcEvents')
+    const sig = '[TEST:MICROSOFT_MARK_READ]'
+
+    const accountState = accountStore.getState()
+    const allServices = accountState.allServicesOfType(SERVICE_TYPES.MICROSOFT_MAIL).sort((a, b) => {
+      if (a.id < b.id) { return -1 }
+      if (a.id > b.id) { return 1 }
+      return 0
+    })
+
+    // Get the service from the user
+    let service
+    if (allServices.length === 0) {
+      throw new Error('No Microsoft services found. Failed to start')
+    } else if (allServices.length === 1) {
+      service = allServices[0]
+    } else if (userIndex === undefined) {
+      console.log([
+        `${sig} Multiple Microsoft services found. Run "markAllMicrosoftInboxEmailsRead(index)" with the index of the service you want to use`
+      ].concat(allServices.map((service, index) => {
+        return `${index}: ${service.serviceDisplayName}`
+      })).join('\n'))
+    } else {
+      service = allServices[userIndex]
+    }
+    if (!service) {
+      throw new Error('Microsoft service not found. Failed to start')
+    }
+    console.log(`${sig} Starting for service ${service.id} ${service.serviceDisplayName}`)
+    const serviceId = service.id
+
+    // Create auth listeners
+    const authSuccessHandler = (evt, data) => {
+      if (data.context.mailboxId !== service.parentId) { return }
+      ipcRenderer.removeListener(WB_AUTH_MICROSOFT_COMPLETE, authSuccessHandler)
+      ipcRenderer.removeListener(WB_AUTH_MICROSOFT_ERROR, authSuccessHandler)
+
+      console.log(`${sig} Authentication success. Marking read`)
+      setTimeout(() => { // Wait for the store to create the model
+        const accountState = accountStore.getState()
+        const service = accountState.getService(serviceId)
+        const serviceAuth = accountState.getMailboxAuthForServiceId(serviceId)
+
+        let accessToken
+        Promise.resolve()
+          .then(() => {
+            return Promise.resolve()
+              .then(() => MicrosoftHTTP.refreshAuthToken(serviceAuth.refreshToken, serviceAuth.authProtocolVersion))
+              .then((res) => {
+                accessToken = res.access_token
+                return Promise.resolve(res.access_token)
+              })
+          })
+          .then((accessToken) => {
+            switch (service.unreadMode) {
+              case MicrosoftMailService.UNREAD_MODES.INBOX_FOCUSED_UNREAD:
+                return MicrosoftHTTP.fetchFocusedUnreadCountAndUnreadMessages(accessToken, 50)
+              case MicrosoftMailService.UNREAD_MODES.INBOX_UNREAD:
+              default:
+                return MicrosoftHTTP.fetchInboxUnreadCountAndUnreadMessages(accessToken, 50)
+            }
+          })
+          .then(({ unreadCount, messages }) => {
+            console.log(`${sig} Found ${unreadCount} unread messages`, messages)
+
+            return messages.reduce((acc, message) => {
+              return acc
+                .then(() => {
+                  console.log(`${sig} marking message read ${message.from.emailAddress.address}:${message.subject}`)
+                  return MicrosoftHTTP.markMessageRead(accessToken, message.id)
+                })
+                .then((data) => {
+                  console.log(`${sig} Success (${message.from.emailAddress.address}:${message.subject})`, data)
+                })
+                .catch((err) => {
+                  console.log(`${sig} Failed (${message.from.emailAddress.address}:${message.subject})`, err)
+                  return Promise.resolve()
+                })
+            }, Promise.resolve())
+          })
+          .then(() => {
+            accountActions.fullSyncService(serviceId)
+          })
+          .catch((err) => {
+            console.error(`${sig}`, err)
+            throw new Error('Unexpected Error', err)
+          })
+      }, 1000)
+    }
+    const authFailureHandler = (evt, data) => {
+      if (data.context.mailboxId !== service.parentId) { return }
+      ipcRenderer.removeListener(WB_AUTH_MICROSOFT_COMPLETE, authSuccessHandler)
+      ipcRenderer.removeListener(WB_AUTH_MICROSOFT_ERROR, authSuccessHandler)
+      console.log(`${sig} Authentication failed`, data)
+    }
+
+    // Fire the auth call
+    console.log(`${sig} Use the authentication window to login to your account...`)
+    ipcRenderer.on(WB_AUTH_MICROSOFT_COMPLETE, authSuccessHandler)
+    ipcRenderer.on(WB_AUTH_MICROSOFT_ERROR, authFailureHandler)
+    ipcRenderer.send(WB_AUTH_MICROSOFT, {
+      partitionId: service.partitionId,
+      credentials: Bootstrap.credentials,
+      mode: 'REAUTHENTICATE',
+      additionalPermissions: ['Mail.ReadWrite'],
+      context: {
+        mailboxId: service.parentId,
+        authId: CoreACAuth.compositeIdFromService(service),
+        serviceId: service.id,
+        sandboxedPartitionId: service.sandboxFromMailbox
+          ? service.partitionId
+          : undefined
+      }
+    })
+  }
+
   /* **************************************************************************/
   // Misc
   /* **************************************************************************/
@@ -179,14 +262,18 @@ class DebugTests {
     const accountStore = require('stores/account/accountStore').default
     const crextensionStore = require('stores/crextension/crextensionStore').default
     const crextensionActions = require('stores/crextension/crextensionActions').default
-    const { ipcRenderer, remote } = require('electron')
+    const { ipcRenderer, remote, webFrame } = require('electron')
     const pkg = require('package.json')
     const {
       WB_SHOW_TRAY_WINDOWED,
       WB_METRICS_OPEN_MONITOR,
       WB_NEW_WINDOW,
+      WB_NEW_POPUP_WINDOW,
       WB_KEYCHAIN_OPEN
     } = require('shared/ipcEvents')
+    const {
+      CRX_RUNTIME_CONTENTSCRIPT_BENCHMARK_CONFIG_SYNC
+    } = require('shared/crExtensionIpcEvents')
 
     const sig = '[TEST:FLASH_TEST]'
 
@@ -221,6 +308,20 @@ class DebugTests {
       console.warn(`${sig} Content Window:FAILED. Needs service`)
     }
 
+    // Content popup window
+    console.log(`${sig} Content Popup Window`)
+    if (service) {
+      ipcRenderer.send(WB_NEW_POPUP_WINDOW, {
+        serviceId: service.id,
+        url: window.atob('aHR0cHM6Ly93YXZlYm94Lmlv'),
+        partition: service.partitionId,
+        webPreferences: { partition: service.partitionId }
+      })
+      console.log(`${sig} Content Popup Window:opened`)
+    } else {
+      console.warn(`${sig} Content Popup Window:FAILED. Needs service`)
+    }
+
     // Content PDF
     console.log(`${sig} PDF Print`)
     if (service) {
@@ -236,6 +337,7 @@ class DebugTests {
     }
 
     // Extensions
+    const extensionBenchmarkConfig = ipcRenderer.sendSync(CRX_RUNTIME_CONTENTSCRIPT_BENCHMARK_CONFIG_SYNC)
     const extensionId = crextensionStore.getState().extensionIds()[0]
     console.log(`${sig} Extension Background`)
     if (extensionId) {
@@ -254,12 +356,24 @@ class DebugTests {
       console.warn(`${sig} Tab DevTools:FAILED. Needs webview`)
     }
 
+    // Apis
+    if (remote.app.setTrayType === undefined) {
+      console.warn(`${sig} app.setTrayType unavailable`)
+    }
+    if (webFrame.createContextId === undefined) {
+      console.warn(`${sig} webFrame.createContextId unavailable`)
+    }
+    if (remote.TextField === undefined) {
+      console.warn(`${sig} nativeUI unavailable`)
+    }
+
     // Stats
     console.log([
       `App: ${pkg.name}`,
       `Version: ${pkg.version}`,
       `Channel: ${pkg.releaseChannel}`,
       `WBShell: ${process.versions.wb_shell}`,
+      `WBExt Benchmark: J${JSON.stringify(extensionBenchmarkConfig)}`,
       `Electron: ${process.versions.electron}`,
       `Chrome: ${process.versions.chrome}`,
       `Navigator: ${window.navigator.userAgent}`
@@ -268,6 +382,43 @@ class DebugTests {
     setTimeout(() => {
       remote.getCurrentWindow().focus()
     }, 1500)
+  }
+
+  /**
+  * Adds a number of accounts
+  * @param count=1: the number of accounts to add
+  * @param sleepable=true: whether to set sleepable on the acconts
+  */
+  addAccounts (count = 1, sleepable = true) {
+    const accountActions = require('stores/account/accountActions').default
+    const uuid = require('uuid')
+    const ACMailbox = require('shared/Models/ACAccounts/ACMailbox').default
+    const CoreACService = require('shared/Models/ACAccounts/CoreACService').default
+    const SERVICE_TYPES = require('shared/Models/ACAccounts/ServiceTypes').default
+    const URLS = [
+      'https://wavebox.io',
+      'https://wavebox.io/download',
+      'https://wavebox.io/kb',
+      'https://wavebox.io/why-wavebox',
+      'https://github.com/wavebox',
+      'https://github.com/wavebox/waveboxapp'
+    ]
+
+    for (let i = 0; i < count; i++) {
+      const mailboxId = uuid.v4()
+      accountActions.createMailbox.defer(ACMailbox.createJS(
+        mailboxId,
+        'test',
+        '#FF0000',
+        'test_template'
+      ))
+      const service = {
+        ...CoreACService.createJS(undefined, mailboxId, SERVICE_TYPES.GENERIC),
+        url: URLS[i % URLS.length],
+        sleepable: sleepable
+      }
+      accountActions.createService.defer(mailboxId, ACMailbox.SERVICE_UI_LOCATIONS.TOOLBAR_START, service)
+    }
   }
 
   /**

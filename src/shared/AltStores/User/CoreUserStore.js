@@ -1,6 +1,9 @@
 import RemoteStore from '../RemoteStore'
 import User from '../../Models/User/User'
-import ACContainer from '../../Models/ACContainer'
+import { ACContainer, ACContainerSAPI } from '../../Models/ACContainer'
+import pkg from 'package.json'
+import semver from 'semver'
+
 import {
   ACTIONS_NAME,
   DISPATCH_NAME,
@@ -35,6 +38,7 @@ class CoreUserStore extends RemoteStore {
     this.extensions = null
     this.wireConfig = null
     this.containers = new Map()
+    this.containerSAPI = new Map()
 
     /* ****************************************/
     // Extensions
@@ -74,6 +78,21 @@ class CoreUserStore extends RemoteStore {
       return new Set(ids)
     }
 
+    /**
+    * @return all the extensions supported in this version
+    */
+    this.supportedExtensionList = () => {
+      return this.extensionList().filter((ext) => {
+        try {
+          const satisfyMinVersion = ext.minVersion ? semver.gte(pkg.version, ext.minVersion) : true
+          const satisfyMaxVersion = ext.maxVersion ? semver.lte(pkg.version, ext.maxVersion) : true
+          return satisfyMinVersion && satisfyMaxVersion
+        } catch (ex) {
+          return false
+        }
+      })
+    }
+
     /* ****************************************/
     // Wire config
     /* ****************************************/
@@ -100,6 +119,58 @@ class CoreUserStore extends RemoteStore {
     }
 
     /**
+    * @param userSetting: the setting that the user has defined
+    * @return the wire config experiment to use the async download handler
+    */
+    this.wceUseAsyncDownloadHandler = (userSetting) => {
+      if (userSetting !== undefined) {
+        return userSetting
+      } else {
+        const val = this.wireConfigExperiments().useAsyncDownloadHandler2
+        return val === undefined ? true : val
+      }
+    }
+
+    /**
+    * @param userSetting: the setting that the user has defined
+    * @return the wire config experiment to use the app fetch stack for MS
+    */
+    this.wceUseAppThreadFetchMicrosoftHTTP = (userSetting) => {
+      if (userSetting !== undefined) {
+        return userSetting
+      } else {
+        const val = this.wireConfigExperiments().useAppThreadFetchMicrosoftHTTP
+        return val === undefined ? true : val
+      }
+    }
+
+    /**
+    * @param userSetting: the setting that the user has defined
+    * @return the wire config expierment to enable tickle or not
+    */
+    this.wceTickleSlackRTM = (userSetting) => {
+      if (userSetting !== undefined) {
+        return userSetting
+      } else {
+        const val = this.wireConfigExperiments().tickleSlackRTM
+        return val === undefined ? true : val
+      }
+    }
+
+    /**
+    * @param userSetting: the setting that the user has defined
+    * @return the wire config experiment to use mute notifications when suspended
+    */
+    this.wceNotificationsMutedWhenSuspended = (userSetting) => {
+      if (userSetting !== undefined) {
+        return userSetting
+      } else {
+        const val = this.wireConfigExperiments().notificationsMutedWhenSuspended
+        return val === undefined ? true : val
+      }
+    }
+
+    /**
     * @param defaultVal=[]: the default value if none is found
     * @return the window open rules
     */
@@ -115,6 +186,30 @@ class CoreUserStore extends RemoteStore {
       return (this.wireConfig || {}).navigate || defaultVal
     }
 
+    /**
+    * Returns the retirement version for google inbox
+    * @return the retirement version
+    */
+    this.wireConfigGoogleInboxRetirementVersion = () => {
+      return this.wireConfigExperiments().googleInboxRetirementVersion || 1
+    }
+
+    /**
+    * Returns true if we should capture ms http errors
+    * @return true to capture
+    */
+    this.wireConfigCaptureMicrosoftHttpErrors = () => {
+      return this.wireConfigExperiments().captureMicrosoftHttpErrors_2 !== false
+    }
+
+    /**
+    * Returns the latest version
+    * @return the latest version or undefined
+    */
+    this.wireConfigLatestCVersion = () => {
+      return this.wireConfigExperiments().latestCVersion
+    }
+
     /* ****************************************/
     // Containers
     /* ****************************************/
@@ -125,6 +220,14 @@ class CoreUserStore extends RemoteStore {
     */
     this.getContainer = (containerId) => {
       return this.containers.get(containerId) || null
+    }
+
+    /**
+    * @param containerId: the id of the container
+    * @return the container sapi data or null
+    */
+    this.getContainerSAPI = (containerId) => {
+      return this.containerSAPI.get(containerId) || null
     }
 
     /* ****************************************/
@@ -145,7 +248,7 @@ class CoreUserStore extends RemoteStore {
   // Loading
   /* **************************************************************************/
 
-  handleLoad ({ userData, containerData, extensionStoreData, wireConfigData }) {
+  handleLoad ({ userData, containerData, containerSAPI, extensionStoreData, wireConfigData }) {
     // Install instance
     this.clientId = userData[CLIENT_ID]
     this.analyticsId = userData[ANALYTICS_ID]
@@ -170,6 +273,13 @@ class CoreUserStore extends RemoteStore {
       acc.set(id, new ACContainer(containerData[id]))
       return acc
     }, new Map())
+
+    this.containerSAPI = Object.keys(containerSAPI || {}).reduce((acc, id) => {
+      acc.set(id, new ACContainerSAPI(containerSAPI[id]))
+      return acc
+    }, new Map())
+
+    this.__isStoreLoaded__ = true
   }
 
   /* **************************************************************************/

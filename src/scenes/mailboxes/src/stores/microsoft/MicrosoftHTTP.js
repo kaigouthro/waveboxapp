@@ -1,5 +1,8 @@
 import Boostrap from 'R/Bootstrap'
 import querystring from 'querystring'
+import FetchService from 'shared/FetchService'
+import { settingsStore } from 'stores/settings'
+import { userStore } from 'stores/user'
 
 const {
   MICROSOFT_CLIENT_ID,
@@ -11,6 +14,21 @@ class MicrosoftHTTP {
   /* **************************************************************************/
   // Utils
   /* **************************************************************************/
+
+  /**
+  * Runs a fetch call
+  * @param url: the url to fetch
+  * @param options: the fetch options
+  */
+  static _fetch (url, options) {
+    const userState = userStore.getState()
+    const settingState = settingsStore.getState()
+    if (userState.wceUseAppThreadFetchMicrosoftHTTP(settingState.app.rawAppThreadFetchMicrosoftHTTP)) {
+      return FetchService.request(url, undefined, options)
+    } else {
+      return window.fetch(url, options)
+    }
+  }
 
   /**
   * Rejects a call because the mailbox has no authentication info
@@ -34,7 +52,7 @@ class MicrosoftHTTP {
   */
   static upgradeAuthCodeToPermenant (authCode, codeRedirectUri) {
     return Promise.resolve()
-      .then(() => window.fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      .then(() => this._fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
         method: 'post',
         headers: {
           'Accept': 'application/json',
@@ -59,7 +77,7 @@ class MicrosoftHTTP {
       .then((auth) => {
         // Find out which type of account this is
         return Promise.resolve()
-          .then(() => window.fetch('https://graph.microsoft.com/v1.0/organization', {
+          .then(() => this._fetch('https://graph.microsoft.com/v1.0/organization', {
             method: 'get',
             headers: {
               'Accept': 'application/json',
@@ -121,7 +139,7 @@ class MicrosoftHTTP {
     }
 
     return Promise.resolve()
-      .then(() => window.fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      .then(() => this._fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
         method: 'post',
         headers: {
           'Accept': 'application/json',
@@ -147,7 +165,7 @@ class MicrosoftHTTP {
     if (!auth) { return this._rejectWithNoAuth() }
 
     return Promise.resolve()
-      .then(() => window.fetch('https://graph.microsoft.com/v1.0/me', {
+      .then(() => this._fetch('https://graph.microsoft.com/v1.0/me', {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -160,23 +178,51 @@ class MicrosoftHTTP {
   }
 
   /**
-  * Fetches the live profile image for a user
+  * Fetches the office 365 avatar
   * @param auth: the auth to access microsoft
-  * @param userId: the id of the user
   * @return promise
   */
-  static fetchLiveProfileImage (auth, userId) {
+  static fetchAvatar (auth) {
     if (!auth) { return this._rejectWithNoAuth() }
 
     return Promise.resolve()
-      .then(() => window.fetch(`https://apis.live.net/v5.0/${userId}/picture`, {
+      .then(() => window.fetch('https://graph.microsoft.com/beta/me/photo/$value', {
         method: 'get',
         headers: {
-          'Accept': 'image'
+          'User-Agent': 'wavebox',
+          'Authorization': `Bearer ${auth}`
         }
       }))
-      .then((res) => res.ok ? Promise.resolve(res) : Promise.reject(res))
-      .then((res) => res.text())
+      .then((res) => {
+        if (res.ok) {
+          return Promise.resolve()
+            .then(() => res.blob())
+            .then((blob) => {
+              return new Promise((resolve, reject) => {
+                const objectURL = window.URL.createObjectURL(blob)
+                const loader = new window.Image()
+                loader.onload = () => {
+                  const draw = document.createElement('canvas')
+                  draw.width = loader.width
+                  draw.height = loader.height
+                  draw.getContext('2d').drawImage(loader, 0, 0, loader.width, loader.height)
+                  const dataURL = draw.toDataURL()
+                  window.URL.revokeObjectURL(objectURL)
+                  resolve(dataURL)
+                }
+                loader.onerror = (err) => {
+                  window.URL.revokeObjectURL(objectURL)
+                  reject(err)
+                }
+                loader.src = objectURL
+              })
+            })
+        } else if (res.status === 404) {
+          return Promise.resolve(undefined)
+        } else {
+          return Promise.reject(res)
+        }
+      })
   }
 
   /* **************************************************************************/
@@ -227,7 +273,7 @@ class MicrosoftHTTP {
     if (!auth) { return this._rejectWithNoAuth() }
 
     return Promise.resolve()
-      .then(() => window.fetch(`https://graph.microsoft.com/beta/me/mailFolders/${folder}`, {
+      .then(() => this._fetch(`https://graph.microsoft.com/beta/me/mailFolders/${folder}`, {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -257,7 +303,7 @@ class MicrosoftHTTP {
     })
 
     return Promise.resolve()
-      .then(() => window.fetch(`https://graph.microsoft.com/beta/me/mailFolders/${folder}/messages?${query}`, {
+      .then(() => this._fetch(`https://graph.microsoft.com/beta/me/mailFolders/${folder}/messages?${query}`, {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -303,7 +349,7 @@ class MicrosoftHTTP {
     })
 
     return Promise.resolve()
-      .then(() => window.fetch(`https://graph.microsoft.com/beta/me/mailFolders/inbox/messages?${query}`, {
+      .then(() => this._fetch(`https://graph.microsoft.com/beta/me/mailFolders/inbox/messages?${query}`, {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -331,7 +377,7 @@ class MicrosoftHTTP {
     })
 
     return Promise.resolve()
-      .then(() => window.fetch(`https://graph.microsoft.com/beta/me/mailFolders/inbox/messages?${query}`, {
+      .then(() => this._fetch(`https://graph.microsoft.com/beta/me/mailFolders/inbox/messages?${query}`, {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -356,7 +402,7 @@ class MicrosoftHTTP {
   */
   static markMessageRead (auth, messageId) {
     return Promise.resolve()
-      .then(() => window.fetch(`https://graph.microsoft.com/beta/me/messages/${messageId}`, {
+      .then(() => this._fetch(`https://graph.microsoft.com/beta/me/messages/${messageId}`, {
         method: 'PATCH',
         headers: {
           'Accept': 'application/json',
@@ -385,7 +431,7 @@ class MicrosoftHTTP {
     if (!auth) { return this._rejectWithNoAuth() }
 
     return Promise.resolve()
-      .then(() => window.fetch('https://graph.microsoft.com/v1.0/me/drive', {
+      .then(() => this._fetch('https://graph.microsoft.com/v1.0/me/drive', {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -395,7 +441,7 @@ class MicrosoftHTTP {
       }))
       .then((res) => res.ok ? Promise.resolve(res) : Promise.reject(res))
       .then((res) => res.json())
-      .then((res) => window.fetch(`https://graph.microsoft.com/v1.0/drives/${res.id}/root`, {
+      .then((res) => this._fetch(`https://graph.microsoft.com/v1.0/drives/${res.id}/root`, {
         method: 'get',
         headers: {
           'Accept': 'application/json',
@@ -406,54 +452,6 @@ class MicrosoftHTTP {
       .then((res) => res.ok ? Promise.resolve(res) : Promise.reject(res))
       .then((res) => res.json())
       .then((res) => res.webUrl)
-  }
-
-  /**
-  * Fetches the office 365 avatar
-  * @param auth: the auth to access microsoft
-  * @return promise
-  */
-  static fetchOffice365Avatar (auth) {
-    if (!auth) { return this._rejectWithNoAuth() }
-
-    return Promise.resolve()
-      .then(() => window.fetch('https://graph.microsoft.com/v1.0/me/photo/$value', {
-        method: 'get',
-        headers: {
-          'User-Agent': 'wavebox',
-          'Authorization': `Bearer ${auth}`
-        }
-      }))
-      .then((res) => {
-        if (res.ok) {
-          return Promise.resolve()
-            .then(() => res.blob())
-            .then((blob) => {
-              return new Promise((resolve, reject) => {
-                const objectURL = window.URL.createObjectURL(blob)
-                const loader = new window.Image()
-                loader.onload = () => {
-                  const draw = document.createElement('canvas')
-                  draw.width = loader.width
-                  draw.height = loader.height
-                  draw.getContext('2d').drawImage(loader, 0, 0, loader.width, loader.height)
-                  const dataURL = draw.toDataURL()
-                  window.URL.revokeObjectURL(objectURL)
-                  resolve(dataURL)
-                }
-                loader.onerror = (err) => {
-                  window.URL.revokeObjectURL(objectURL)
-                  reject(err)
-                }
-                loader.src = objectURL
-              })
-            })
-        } else if (res.status === 404) {
-          return Promise.resolve(undefined)
-        } else {
-          return Promise.reject(res)
-        }
-      })
   }
 }
 

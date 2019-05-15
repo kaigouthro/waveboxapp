@@ -32,6 +32,7 @@ class CoreAccountStore extends RemoteStore {
 
     // State
     this._activeServiceId_ = null
+    this._serviceLastActiveTS_ = new Map()
     this._sleepingServices_ = new Map()
     this._sleepingMetrics_ = new Map()
     this._mailboxAvatarCache_ = new Map()
@@ -80,6 +81,15 @@ class CoreAccountStore extends RemoteStore {
     this.getMailboxForService = (serviceId) => {
       const service = this.getService(serviceId)
       return service ? this.getMailbox(service.parentId) : null
+    }
+
+    /**
+    * @param serviceId: the id of the service
+    * @return the mailboxid for the service
+    */
+    this.getMailboxIdForService = (serviceId) => {
+      const service = this.getService(serviceId)
+      return service ? service.parentId : null
     }
 
     /**
@@ -340,6 +350,29 @@ class CoreAccountStore extends RemoteStore {
       const mailbox = this.getMailbox(mailboxId)
       if (!mailbox) { return '' }
 
+      const explicitServiceDisplayName = this.resolvedMailboxExplicitServiceDisplayName(mailboxId, undefined)
+
+      if (mailbox.hasMultipleServices) {
+        const components = [
+          explicitServiceDisplayName,
+          `${mailbox.allServiceCount} services`
+        ].filter((c) => !!c)
+        return components.join(' - ')
+      } else {
+        return explicitServiceDisplayName || this.resolvedServiceDisplayName(mailbox.allServices[0], undefined)
+      }
+    }
+
+    /**
+    * Gets the explicit service display name from the services within the mailbox
+    * @param mailboxId: the id of the mailbox
+    * @param defaultValue='': the default value to use when no service is found
+    * @return an explicit display name or the default value
+    */
+    this.resolvedMailboxExplicitServiceDisplayName = (mailboxId, defaultValue = '') => {
+      const mailbox = this.getMailbox(mailboxId)
+      if (!mailbox) { return defaultValue }
+
       const serviceWithServiceDisplayName = this.getService(
         mailbox
           .allServices
@@ -349,21 +382,9 @@ class CoreAccountStore extends RemoteStore {
           })
       )
 
-      if (mailbox.hasMultipleServices) {
-        const components = [
-          serviceWithServiceDisplayName
-            ? serviceWithServiceDisplayName.serviceDisplayName
-            : undefined,
-          `${mailbox.allServiceCount} services`
-        ].filter((c) => !!c)
-        return components.join(' - ')
-      } else {
-        if (serviceWithServiceDisplayName) {
-          return serviceWithServiceDisplayName.serviceDisplayName
-        } else {
-          return this.resolvedServiceDisplayName(mailbox.allServices[0], undefined)
-        }
-      }
+      return serviceWithServiceDisplayName
+        ? serviceWithServiceDisplayName.serviceDisplayName
+        : defaultValue
     }
 
     /**
@@ -411,6 +432,43 @@ class CoreAccountStore extends RemoteStore {
       const serviceAuth = this.getMailboxAuthForServiceId(serviceId) // This is sometimes optional
       if (!service || !serviceData) { return defaultValue }
       return service.getUrlWithData(serviceData, serviceAuth) || defaultValue
+    }
+
+    /**
+    * @return all the services names, fully resolved for maximum usability in an object
+    */
+    this.allResolvedFullServiceNames = () => {
+      return this.serviceIds().reduce((acc, serviceId) => {
+        acc[serviceId] = this.resolvedFullServiceName(serviceId)
+        return acc
+      }, {})
+    }
+
+    /**
+    * @return all the mailbox names, fully resolved in an object
+    */
+    this.allResolvedFullMailboxNames = () => {
+      return this.mailboxIds().reduce((acc, mailboxId) => {
+        acc[mailboxId] = this.resolvedMailboxDisplayName(mailboxId)
+        return acc
+      }, {})
+    }
+
+    /**
+    * @param serviceId: the id of the service
+    * @return A fully resolved service id which includes mailbox info
+    */
+    this.resolvedFullServiceName = (serviceId) => {
+      const service = this.getService(serviceId)
+      if (service) {
+        const displayName = this.resolvedServiceDisplayName(serviceId)
+        const mailboxHelper = this.resolvedMailboxExplicitServiceDisplayName(service.parentId, undefined)
+
+        return mailboxHelper && mailboxHelper !== displayName
+          ? `${displayName} ${mailboxHelper}`
+          : displayName
+      }
+      return undefined
     }
 
     /* ****************************************/
@@ -620,6 +678,16 @@ class CoreAccountStore extends RemoteStore {
     this.activeServiceIsFirstInMailbox = () => {
       const mailbox = this.activeMailbox()
       return mailbox ? this.isServiceActive(mailbox.allServices[0]) : false
+    }
+
+    /**
+    * Gets the active service id but only if in the given mailbox
+    * @param mailboxId: the id of the mailbox to look in
+    * @return the active service id if it's in the mailbox
+    */
+    this.activeServiceIdInMailbox = (mailboxId) => {
+      const service = this.activeService()
+      return service && service.parentId === mailboxId ? service.id : undefined
     }
 
     /* ****************************************/
@@ -899,6 +967,147 @@ class CoreAccountStore extends RemoteStore {
     }
 
     /* ****************************************/
+    // Bookmarks
+    /* ****************************************/
+
+    /**
+    * @return a list of all reading queue items. Will have corresponding
+    * service id salted into them
+    */
+    this.allBookmarkItems = () => {
+      return this.serviceIds()
+        .reduce((acc, serviceId) => {
+          const service = this.getService(serviceId)
+          if (service) {
+            const queue = service.bookmarks.map((b) => {
+              return { ...b, serviceId }
+            })
+            return acc.concat(queue)
+          }
+          return acc
+        }, [])
+        .sort((a, b) => b.time - a.time)
+    }
+
+    /* ****************************************/
+    // Last accessed
+    /* ****************************************/
+
+    /**
+    * @param mailboxOrMailboxId: the mailbox or mailboxId
+    * @param returnTimestamp=false: true to return the timestamp with service id
+    * @return serviceId or if returnTimestamp===true { serviceId, ts }
+    */
+    this.lastAccessedServiceIdInMailbox = (mailboxOrMailboxId, returnTimestamp = false) => {
+      const mailbox = typeof (mailboxOrMailboxId) === 'string'
+        ? this.getMailbox(mailboxOrMailboxId)
+        : mailboxOrMailboxId
+
+      if (!mailbox) {
+        return returnTimestamp ? { serviceId: undefined, ts: 0 } : undefined
+      } else {
+        const last = mailbox.allServices.reduce((acc, serviceId) => {
+          const ts = this._serviceLastActiveTS_.get(serviceId) || 0
+          return ts > acc.ts ? { serviceId, ts } : acc
+        }, { serviceId: undefined, ts: 0 })
+
+        return returnTimestamp ? last : last.serviceId
+      }
+    }
+
+    /**
+    * Get a list of service ids by their last accessed time
+    * @param omitUnvisted=false: set to true to skip accounts that have not been visited
+    * @return a list of service ids ordered by their last accessed time, newest first
+    */
+    this.lastAccessedServiceIds = (omitUnvisted = false) => {
+      const activeServiceId = this.activeServiceId()
+      if (omitUnvisted) {
+        return this.serviceIds()
+          .filter((serviceId) => this._serviceLastActiveTS_.get(serviceId) !== undefined || serviceId === activeServiceId)
+          .sort((a, b) => {
+            if (a === activeServiceId) { return -1 }
+            const ats = this._serviceLastActiveTS_.get(a) || 0
+            const bts = this._serviceLastActiveTS_.get(b) || 0
+            if (ats < bts) { return 1 }
+            if (ats > bts) { return -1 }
+
+            return 0
+          })
+      } else {
+        const serviceIndex = this.allServicesOrdered().reduce((acc, service, index) => {
+          acc[service.id] = index
+          return acc
+        }, {})
+
+        return this.serviceIds()
+          .sort((a, b) => {
+            if (a === activeServiceId) { return -1 }
+            const ats = this._serviceLastActiveTS_.get(a) || 0
+            const bts = this._serviceLastActiveTS_.get(b) || 0
+            if (ats < bts) { return 1 }
+            if (ats > bts) { return -1 }
+
+            const aind = serviceIndex[a]
+            const bind = serviceIndex[b]
+            if (aind > bind) { return 1 }
+            if (aind < bind) { return -1 }
+
+            return 0
+          })
+      }
+    }
+
+    /**
+    * @return a list of mailbox ids ordered by their last accessed time, newest first
+    */
+    this.lastAccessedMailboxIds = () => {
+      const mailboxIds = new Set()
+      this.lastAccessedServiceIds().forEach((serviceId) => {
+        mailboxIds.add(this.getService(serviceId).parentId)
+      })
+      return Array.from(mailboxIds)
+    }
+
+    /* ****************************************/
+    // Service Commands
+    /* ****************************************/
+
+    /**
+    * Gets all the currently supported service commands
+    * @return an array of commands. Will be reduced to ensure no duplication
+    */
+    this.getAllSupportedServiceCommands = () => {
+      const all = this.allServicesUnordered().reduce((acc, service) => {
+        service.commands.forEach((command) => {
+          acc.set(`${command.modifier}${command.keyword}`, command)
+        })
+        return acc
+      }, new Map())
+      return Array.from(all.values())
+    }
+
+    /**
+    * Gets a list of service ids for a command
+    * @param modifier: the command modifier
+    * @param keyword: the command keyword
+    * @param ordered=false: pass true to pre-order services
+    * @return an array of service ids that support the command
+    */
+    this.getServiceIdsSupportingCommand = (modifier, keyword, ordered = false) => {
+      const services = ordered
+        ? this.allServicesOrdered()
+        : this.allServicesUnordered()
+      return services.reduce((acc, service) => {
+        const command = service.commands.find((command) => command.modifier === modifier && command.keyword === keyword)
+        if (command) {
+          acc.push(service.id)
+        }
+        return acc
+      }, [])
+    }
+
+    /* ****************************************/
     // Misc
     /* ****************************************/
 
@@ -950,19 +1159,29 @@ class CoreAccountStore extends RemoteStore {
   /* **************************************************************************/
 
   /**
+  * Locates the user store and gets the current state
+  * @return the user state
+  */
+  _getUserStoreState () {
+    const userStore = this.alt.getStore(AltUserIdentifiers.STORE_NAME)
+    if (!userStore) {
+      throw new Error(`Alt "${STORE_NAME}" is unable to locate "${AltUserIdentifiers.STORE_NAME}". Ensure both have been linked`)
+    }
+
+    const userState = userStore.getState()
+    if (!userState.isStoreLoaded()) {
+      throw new Error(`Alt "${STORE_NAME}" tried to locate "${AltUserIdentifiers.STORE_NAME}" but it is not loaded. Ensure it is loaded first`)
+    }
+
+    return userState
+  }
+
+  /**
   * Tries to source the user from the user store
   * @return the user or a default representation
   */
   getUser () {
-    const userStore = this.alt.getStore(AltUserIdentifiers.STORE_NAME)
-    if (userStore) {
-      const user = userStore.getState().user
-      if (user) {
-        return user
-      }
-    }
-
-    throw new Error(`Alt "${STORE_NAME}" unable to locate "${AltUserIdentifiers.STORE_NAME}". Ensure both have been linked`)
+    return this._getUserStoreState().user
   }
 
   /**
@@ -971,12 +1190,26 @@ class CoreAccountStore extends RemoteStore {
   * @return the container or undefined if it's unknown
   */
   getContainer (containerId) {
-    const userStore = this.alt.getStore(AltUserIdentifiers.STORE_NAME)
-    if (userStore) {
-      return userStore.getState().getContainer(containerId)
-    }
+    return this._getUserStoreState().getContainer(containerId)
+  }
 
-    throw new Error(`Alt "${STORE_NAME}" unable to locate "${AltUserIdentifiers.STORE_NAME}". Ensure both have been linked`)
+  /**
+  * Gets a container service api from the user store
+  * @param containerId: the container
+  * @return the container data or undefined if it's unknown
+  */
+  getContainerSAPI (containerId) {
+    return this._getUserStoreState().getContainerSAPI(containerId)
+  }
+
+  /**
+  * Gets a clone of the container service api data from the user store
+  * @param containerId: the container id
+  * @return a clone of the data or undefined if not available
+  */
+  getContainerSAPIDataForService (containerId) {
+    const sapi = this.getContainerSAPI(containerId)
+    return sapi ? sapi.cloneForService() : undefined
   }
 
   /* **************************************************************************/
@@ -992,7 +1225,8 @@ class CoreAccountStore extends RemoteStore {
       mailboxAuth,
       avatars,
       activeService,
-      sleepingServices
+      sleepingServices,
+      serviceLastActiveTS
     } = payload
 
     // Mailboxes
@@ -1024,10 +1258,22 @@ class CoreAccountStore extends RemoteStore {
 
     // Active & Sleep
     this._activeServiceId_ = activeService || this.firstServiceId() // Make sure we glue the value if it's not defined
+    this._serviceLastActiveTS_ = Object.keys(serviceLastActiveTS).reduce((acc, k) => {
+      acc.set(k, serviceLastActiveTS[k])
+      return acc
+    }, new Map())
+    if (this._activeServiceId_) {
+      this._serviceLastActiveTS_.set(
+        this._activeServiceId_,
+        this._serviceLastActiveTS_.get(this._activeServiceId_) || new Date().getTime()
+      )
+    }
     this._sleepingServices_ = Object.keys(sleepingServices).reduce((acc, k) => {
       acc.set(k, sleepingServices[k])
       return acc
     }, new Map())
+
+    this.__isStoreLoaded__ = true
   }
 
   /* **************************************************************************/

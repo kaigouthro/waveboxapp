@@ -1,5 +1,57 @@
 const Model = require('../Model')
 
+const ENUMERABLE_LOCAL_PROPS = [
+  'preferences',
+  'composeMail',
+  'composeMailHere',
+  'closeWindow',
+  'hide',
+  'hideOthers',
+  'quit',
+
+  'undo',
+  'redo',
+  'cut',
+  'copy',
+  'paste',
+  'pasteAndMatchStyle',
+  'selectAll',
+  'copyCurrentTabUrl',
+  'find',
+  'findNext',
+
+  'toggleFullscreen',
+  'toggleSidebar',
+  'toggleMenu',
+  'navigateBack',
+  'navigateForward',
+  'navigateBackAlt',
+  'navigateForwardAlt',
+  'zoomIn',
+  'zoomOut',
+  'zoomReset',
+  'reload',
+  'reloadWavebox',
+  'developerTools',
+  'developerToolsWavebox',
+  'openNextQueueItem',
+  'commandPalette',
+
+  'minimize',
+  'cycleWindows',
+  'previousMailbox',
+  'nextMailbox',
+  'mailboxIndex',
+  'servicePrevious',
+  'serviceNext',
+  'serviceIndex',
+  'nextTab',
+  'prevTab',
+  'toggleWaveboxMini',
+  'quickSwitchNext',
+  'quickSwitchPrev'
+]
+
 class AcceleratorSettings extends Model {
   /* ****************************************************************************/
   // Defaults
@@ -46,6 +98,8 @@ class AcceleratorSettings extends Model {
   get toggleMenuDefault () { return 'CmdOrCtrl+\\' }
   get navigateBackDefault () { return process.platform === 'darwin' ? 'CmdOrCtrl+Left' : 'Alt+Left' }
   get navigateForwardDefault () { return process.platform === 'darwin' ? 'CmdOrCtrl+Right' : 'Alt+Right' }
+  get navigateBackAltDefault () { return process.platform === 'darwin' ? 'Cmd+[' : undefined }
+  get navigateForwardAltDefault () { return process.platform === 'darwin' ? 'Cmd+]' : undefined }
   get zoomInDefault () { return 'CmdOrCtrl+Plus' }
   get zoomOutDefault () { return 'CmdOrCtrl+-' }
   get zoomResetDefault () { return 'CmdOrCtrl+0' }
@@ -54,6 +108,7 @@ class AcceleratorSettings extends Model {
   get developerToolsDefault () { return process.platform === 'darwin' ? 'Command+Alt+I' : 'Ctrl+Shift+I' }
   get developerToolsWaveboxDefault () { return process.platform === 'darwin' ? 'Command+Alt+J' : 'Ctrl+Shift+J' }
   get openNextQueueItemDefault () { return 'CmdOrCtrl+P' }
+  get commandPaletteDefault () { return 'CmdOrCtrl+T' }
 
   // Window
   get minimizeDefault () { return 'CmdOrCtrl+M' }
@@ -64,9 +119,11 @@ class AcceleratorSettings extends Model {
   get servicePreviousDefault () { return 'CmdOrCtrl+Alt+<' }
   get serviceNextDefault () { return 'CmdOrCtrl+Alt+>' }
   get serviceIndexDefault () { return process.platform === 'darwin' ? 'Command+Alt+Number' : undefined }
-  get nextTabDefault () { return process.platform === 'darwin' ? 'Command+Alt+Right' : 'Ctrl+Tab' }
-  get prevTabDefault () { return process.platform === 'darwin' ? 'Command+Alt+Left' : 'Ctrl+Shift+Tab' }
+  get nextTabDefault () { return process.platform === 'darwin' ? 'Command+Alt+Right' : undefined }
+  get prevTabDefault () { return process.platform === 'darwin' ? 'Command+Alt+Left' : undefined }
   get toggleWaveboxMiniDefault () { return process.platform === 'darwin' ? 'Cmd+Alt+M' : 'Ctrl+Shift+M' }
+  get quickSwitchNextDefault () { return 'Ctrl+Tab' }
+  get quickSwitchPrevDefault () { return 'Ctrl+Shift+Tab' }
 
   /* ****************************************************************************/
   // Config
@@ -113,6 +170,8 @@ class AcceleratorSettings extends Model {
   get toggleMenu () { return this._value_('toggleMenu', this.toggleMenuDefault) }
   get navigateBack () { return this._value_('navigateBack', this.navigateBackDefault) }
   get navigateForward () { return this._value_('navigateForward', this.navigateForwardDefault) }
+  get navigateBackAlt () { return this._value_('navigateBackAlt', this.navigateBackAltDefault) }
+  get navigateForwardAlt () { return this._value_('navigateForwardAlt', this.navigateForwardAltDefault) }
   get zoomIn () { return this._value_('zoomIn', this.zoomInDefault) }
   get zoomOut () { return this._value_('zoomOut', this.zoomOutDefault) }
   get zoomReset () { return this._value_('zoomReset', this.zoomResetDefault) }
@@ -121,6 +180,7 @@ class AcceleratorSettings extends Model {
   get developerTools () { return this._value_('developerTools', this.developerToolsDefault) }
   get developerToolsWavebox () { return this._value_('developerToolsWavebox', this.developerToolsWaveboxDefault) }
   get openNextQueueItem () { return this._value_('openNextQueueItem', this.openNextQueueItemDefault) }
+  get commandPalette () { return this._value_('commandPalette', this.commandPaletteDefault) }
 
   // Window
   get minimize () { return this._value_('minimize', this.minimizeDefault) }
@@ -134,6 +194,24 @@ class AcceleratorSettings extends Model {
   get nextTab () { return this._value_('nextTab', this.nextTabDefault) }
   get prevTab () { return this._value_('prevTab', this.prevTabDefault) }
   get toggleWaveboxMini () { return this._value_('toggleWaveboxMini', this.toggleWaveboxMiniDefault) }
+  get quickSwitchNext () { return this._value_('quickSwitchNext', this.quickSwitchNextDefault) }
+  get quickSwitchPrev () { return this._value_('quickSwitchPrev', this.quickSwitchPrevDefault) }
+
+  /* ****************************************************************************/
+  // Utils
+  /* ****************************************************************************/
+
+  /**
+  * Checks to see if there are any accelerators defined
+  * @param search: an array of exact keycodes to look for
+  */
+  hasLocalAccelerator (search) {
+    const searchSet = new Set(search)
+    const prop = ENUMERABLE_LOCAL_PROPS.find((prop) => {
+      return searchSet.has(this[prop])
+    })
+    return !!prop
+  }
 }
 
 module.exports = AcceleratorSettings

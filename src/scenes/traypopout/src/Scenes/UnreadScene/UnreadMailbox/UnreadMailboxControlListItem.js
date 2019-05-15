@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import { accountStore } from 'stores/account'
 import { ListItem } from '@material-ui/core'
 import MailboxBadge from 'wbui/MailboxBadge'
-import ACAvatarCircle from 'wbui/ACAvatarCircle'
+import ACAvatarCircle2 from 'wbui/ACAvatarCircle2'
 import KeyboardArrowLeftIcon from '@material-ui/icons/KeyboardArrowLeft'
 import { withStyles } from '@material-ui/core/styles'
 import grey from '@material-ui/core/colors/grey'
@@ -72,7 +72,7 @@ class UnreadMailboxControlListItem extends React.Component {
   */
   generateMailboxState (mailboxId, accountState = accountStore.getState()) {
     return {
-      mailbox: accountState.getMailbox(mailboxId),
+      badgeColor: (accountState.getMailbox(mailboxId) || {}).badgeColor,
       unreadCount: accountState.userUnreadCountForMailbox(mailboxId),
       hasUnreadActivity: accountState.userUnreadActivityForMailbox(mailboxId),
       avatar: accountState.getMailboxAvatarConfig(mailboxId)
@@ -84,8 +84,20 @@ class UnreadMailboxControlListItem extends React.Component {
   /* **************************************************************************/
 
   render () {
-    const { mailboxId, requestSwitchMailbox, requestShowMailboxList, classes, className, ...passProps } = this.props
-    const { mailbox, avatar, unreadCount, hasUnreadActivity } = this.state
+    const {
+      mailboxId,
+      requestSwitchMailbox,
+      requestShowMailboxList,
+      classes,
+      className,
+      ...passProps
+    } = this.props
+    const {
+      badgeColor,
+      avatar,
+      unreadCount,
+      hasUnreadActivity
+    } = this.state
 
     return (
       <ListItem
@@ -95,8 +107,8 @@ class UnreadMailboxControlListItem extends React.Component {
         {...passProps}>
         <KeyboardArrowLeftIcon className={classes.backArrow} />
         <MailboxDisplayName mailboxId={mailboxId} />
-        <MailboxBadge mailbox={mailbox} unreadCount={unreadCount} hasUnreadActivity={hasUnreadActivity}>
-          <ACAvatarCircle
+        <MailboxBadge color={badgeColor} unreadCount={unreadCount} hasUnreadActivity={hasUnreadActivity}>
+          <ACAvatarCircle2
             avatar={avatar}
             resolver={(i) => Resolver.image(i)}
             size={40}

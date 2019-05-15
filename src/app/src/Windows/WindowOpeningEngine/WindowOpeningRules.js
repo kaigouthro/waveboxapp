@@ -71,13 +71,21 @@ class WindowOpeningRules {
   /* ****************************************************************************/
 
   /**
-  * Gets the matching open mode
+  * Gets the matching config
   * @param matchTask: the task to match against
-  * @return the matching mode or undefined
+  * @return { match, mode, ignoreUserCommandKeyModifier }
   */
-  getMatchingMode (matchTask) {
+  getMatchingRuleConfig (matchTask) {
     const match = this._getMatchingRule(matchTask)
-    return match ? match.mode.toUpperCase() : undefined
+    return match
+      ? {
+        match: true,
+        mode: match.mode.toUpperCase(),
+        ignoreUserCommandKeyModifier: match.ignoreUserCommandKeyModifier,
+        allowBlankPopupToRewrite: match.allowBlankPopupToRewrite,
+        disallowFromBlankPopup: match.disallowFromBlankPopup
+      }
+      : { match: false }
   }
 
   /**
@@ -93,7 +101,10 @@ class WindowOpeningRules {
         match = {
           site: site,
           rule: matchedRule,
-          mode: matchedRule.mode
+          mode: matchedRule.mode,
+          ignoreUserCommandKeyModifier: matchedRule.ignoreUserCommandKeyModifier === true,
+          allowBlankPopupToRewrite: matchedRule.allowBlankPopupToRewrite === true,
+          disallowFromBlankPopup: matchedRule.disallowFromBlankPopup === true
         }
         return true
       } else {

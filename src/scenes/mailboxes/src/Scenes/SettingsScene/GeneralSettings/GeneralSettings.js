@@ -6,12 +6,14 @@ import platformStore from 'stores/platform/platformStore'
 import UISettingsSection from './UISettingsSection'
 import NotificationSettingsSection from './NotificationSettingsSection'
 import DownloadSettingsSection from './DownloadSettingsSection'
+import LinkSettingsSection from './LinkSettingsSection'
 import LanguageSettingsSection from './LanguageSettingsSection'
 import PlatformSettingsSection from './PlatformSettingsSection'
 import TraySettingsSection from './TraySettingsSection'
 import UpdateSettingsSection from './UpdateSettingsSection'
 import AcceleratorSettingsSection from './AcceleratorSettingsSection'
 import DataSettingsSection from './DataSettingsSection'
+import NetworkSettingsSection from './NetworkSettingsSection'
 import AdvancedSettingsSection from './AdvancedSettingsSection'
 import DebugSettingsSection from './DebugSettingsSection'
 import InfoSettingsSection from './InfoSettingsSection'
@@ -35,6 +37,8 @@ import StorageIcon from '@material-ui/icons/Storage'
 import TuneIcon from '@material-ui/icons/Tune'
 import BugReportIcon from '@material-ui/icons/BugReport'
 import HelpIcon from '@material-ui/icons/Help'
+import LinkIcon from '@material-ui/icons/Link'
+import NetworkWifiIcon from '@material-ui/icons/NetworkWifi'
 
 const CONTENT_WIDTH = 600
 const SCROLLSPY_WIDTH = 210
@@ -62,7 +66,9 @@ const styles = {
     position: 'absolute',
     top: 0,
     left: 0,
-    width: SCROLLSPY_WIDTH
+    width: SCROLLSPY_WIDTH,
+    maxHeight: '100%',
+    ...StyleMixins.scrolling.alwaysShowVerticalScrollbars
   },
   scrollspyList: {
     paddingTop: 0,
@@ -236,13 +242,16 @@ class GeneralSettings extends React.Component {
         {...passProps}>
         <div ref={(n) => { this.scrollerRef = n }} className={classes.scroller}>
           <section id='section-ui'>
-            <UISettingsSection ui={ui} os={os} accelerators={accelerators} extension={extension} showRestart={showRestart} />
+            <UISettingsSection ui={ui} accelerators={accelerators} extension={extension} showRestart={showRestart} />
           </section>
           <section id='section-notifications'>
             {renderBelowFold ? <NotificationSettingsSection os={os} /> : undefined}
           </section>
           <section id='section-download'>
             {renderBelowFold ? <DownloadSettingsSection os={os} /> : undefined}
+          </section>
+          <section id='section-link'>
+            {renderBelowFold ? <LinkSettingsSection os={os} showRestart={showRestart} /> : undefined}
           </section>
           <section id='section-language'>
             {renderBelowFold ? <LanguageSettingsSection language={language} showRestart={showRestart} /> : undefined}
@@ -267,12 +276,16 @@ class GeneralSettings extends React.Component {
           <section id='section-data'>
             {renderBelowFold ? <DataSettingsSection showRestart={showRestart} /> : undefined}
           </section>
+          <section id='section-network'>
+            {renderBelowFold ? <NetworkSettingsSection app={app} showRestart={showRestart} /> : undefined}
+          </section>
           <section id='section-advanced'>
             {renderBelowFold ? (
               <AdvancedSettingsSection
                 showRestart={showRestart}
                 app={app}
                 language={language}
+                os={os}
                 ui={ui} />
             ) : undefined}
           </section>
@@ -292,12 +305,14 @@ class GeneralSettings extends React.Component {
                 'section-ui',
                 'section-notifications',
                 'section-download',
+                'section-link',
                 'section-language',
                 'section-platform',
                 'section-tray',
                 'section-accelerators',
                 'section-update',
                 'section-data',
+                'section-network',
                 'section-advanced',
                 'section-debug',
                 'section-about'
@@ -329,6 +344,15 @@ class GeneralSettings extends React.Component {
                 onClick={(evt) => this.scrollToSection(evt, 'section-download')}>
                 <CloudDownloadIcon className={classes.scrollspyIcon} />
                 Download
+              </ListItem>
+              <ListItem
+                divider
+                button
+                dense
+                className={classes.scrollspyItem}
+                onClick={(evt) => this.scrollToSection(evt, 'section-link')}>
+                <LinkIcon className={classes.scrollspyIcon} />
+                Links
               </ListItem>
               <ListItem
                 divider
@@ -380,6 +404,15 @@ class GeneralSettings extends React.Component {
                 onClick={(evt) => this.scrollToSection(evt, 'section-data')}>
                 <StorageIcon className={classes.scrollspyIcon} />
                 Data & Sync
+              </ListItem>
+              <ListItem
+                divider
+                button
+                dense
+                className={classes.scrollspyItem}
+                onClick={(evt) => this.scrollToSection(evt, 'section-network')}>
+                <NetworkWifiIcon className={classes.scrollspyIcon} />
+                Network
               </ListItem>
               <ListItem
                 divider

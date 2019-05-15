@@ -19,7 +19,6 @@ export default class UISettingsSection extends React.Component {
 
   static propTypes = {
     ui: PropTypes.object.isRequired,
-    os: PropTypes.object.isRequired,
     accelerators: PropTypes.object.isRequired,
     extension: PropTypes.object.isRequired,
     showRestart: PropTypes.func.isRequired
@@ -40,18 +39,26 @@ export default class UISettingsSection extends React.Component {
         'accountTooltipInteractive',
         'accountTooltipDelay',
         'sidebarEnabled',
+        'sidebarActiveIndicator',
         'showSidebarSupport',
         'showSidebarNewsfeed',
+        'showSidebarDownloads',
+        'setShowSidebarBusy',
         'showTitlebar',
         'showAppMenu',
         'showTitlebarCount',
         'showTitlebarAccount',
         'theme',
         'sidebarSize',
-        'showSidebarScrollbars'
+        'showSidebarScrollbars',
+        'warnBeforeKeyboardQuitting',
+        'showFullscreenHelper'
       ]) ||
-      modelCompare(this.props.os, nextProps.os, ['openLinksInBackground']) ||
-      modelCompare(this.props.accelerators, nextProps.accelerators, ['toggleSidebar', 'toggleMenu']) ||
+      modelCompare(this.props.accelerators, nextProps.accelerators, [
+        'toggleSidebar',
+        'toggleMenu',
+        'quit'
+      ]) ||
       modelCompare(this.props.extension, nextProps.extension, ['showBrowserActionsInToolbar', 'toolbarBrowserActionLayout']) ||
       partialShallowCompare(
         { showRestart: this.props.showRestart },
@@ -65,7 +72,6 @@ export default class UISettingsSection extends React.Component {
   render () {
     const {
       ui,
-      os,
       extension,
       accelerators,
       showRestart,
@@ -79,12 +85,6 @@ export default class UISettingsSection extends React.Component {
             label='Show app unread badge'
             onChange={(evt, toggled) => settingsActions.sub.ui.setShowAppBadge(toggled)}
             checked={ui.showAppBadge} />
-          {process.platform === 'darwin' ? (
-            <SettingsListItemSwitch
-              label='Open links in background'
-              onChange={(evt, toggled) => settingsActions.sub.os.setOpenLinksInBackground(toggled)}
-              checked={os.openLinksInBackground} />
-          ) : undefined}
           <SettingsListItemSwitch
             label='Always start minimized'
             onChange={(evt, toggled) => settingsActions.sub.ui.setOpenHidden(toggled)}
@@ -93,6 +93,19 @@ export default class UISettingsSection extends React.Component {
             label='Show sleeping account icons in grey'
             onChange={(evt, toggled) => settingsActions.sub.ui.setShowSleepableServiceIndicator(toggled)}
             checked={ui.showSleepableServiceIndicator} />
+          <SettingsListItemSwitch
+            label={(
+              <span>
+                <span>Warn before quitting with </span>
+                <SettingsListKeyboardShortcutText shortcut={accelerators.quit} />
+              </span>
+            )}
+            onChange={(evt, toggled) => settingsActions.sub.ui.setWarnBeforeKeyboardQuitting(toggled)}
+            checked={ui.warnBeforeKeyboardQuitting} />
+          <SettingsListItemSwitch
+            label='Show toast helper when entering fullscreen'
+            onChange={(evt, toggled) => settingsActions.sub.ui.setShowFullscreenHelper(toggled)}
+            checked={ui.showFullscreenHelper} />
           <SettingsListItemSelectInline
             label='App theme'
             divider={process.platform === 'darwin'}
@@ -223,6 +236,31 @@ export default class UISettingsSection extends React.Component {
               { value: UISettings.SIDEBAR_SIZES.TINY, label: 'Tiny' }
             ]}
             onChange={(evt, value) => settingsActions.sub.ui.setSidebarSize(value)} />
+          <SettingsListItemSelectInline
+            label='Active account indicator'
+            value={ui.sidebarActiveIndicator}
+            options={[
+              { value: UISettings.SIDEBAR_ACTIVE_INDICATOR.DOT, label: 'Dot' },
+              { value: UISettings.SIDEBAR_ACTIVE_INDICATOR.BANNER, label: 'Banner (Account color)' },
+              { value: UISettings.SIDEBAR_ACTIVE_INDICATOR.BANNER_THEME, label: 'Banner (Theme color)' },
+              { value: UISettings.SIDEBAR_ACTIVE_INDICATOR.BAR, label: 'Bar (Account color)' },
+              { value: UISettings.SIDEBAR_ACTIVE_INDICATOR.BAR_THEME, label: 'Bar (Theme color)' },
+              { value: UISettings.SIDEBAR_ACTIVE_INDICATOR.NONE, label: 'None' }
+            ]}
+            onChange={(evt, value) => settingsActions.sub.ui.setSidebarActiveIndicator(value)} />
+          <SettingsListItemSwitch
+            label='Show Activity in Sidebar'
+            onChange={(evt, toggled) => settingsActions.sub.ui.setShowSidebarBusy(toggled)}
+            checked={ui.showSidebarBusy} />
+          <SettingsListItemSelectInline
+            label={`Show Downloads in Sidebar`}
+            value={ui.showSidebarDownloads}
+            options={[
+              { value: UISettings.SIDEBAR_DOWNLOAD_MODES.NEVER, label: 'Never' },
+              { value: UISettings.SIDEBAR_DOWNLOAD_MODES.ACTIVE, label: `When there are active downloads` },
+              { value: UISettings.SIDEBAR_DOWNLOAD_MODES.ALWAYS, label: 'Always' }
+            ]}
+            onChange={(evt, value) => settingsActions.sub.ui.setShowSidebarDownloads(value)} />
           <SettingsListItemSelectInline
             label={`Show What's New in Sidebar`}
             value={ui.showSidebarNewsfeed}

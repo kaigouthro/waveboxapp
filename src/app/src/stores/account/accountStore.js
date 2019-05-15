@@ -28,6 +28,9 @@ import SERVICE_TYPES from 'shared/Models/ACAccounts/ServiceTypes'
 import GenericService from 'shared/Models/ACAccounts/Generic/GenericService'
 import CoreACService from 'shared/Models/ACAccounts/CoreACService'
 import HtmlMetaService from 'HTTP/HtmlMetaService'
+import GoogleMailService from 'shared/Models/ACAccounts/Google/GoogleMailService'
+import ServicesManager from 'Services'
+import IEngine from 'IEngine'
 
 class AccountStore extends CoreAccountStore {
   /* **************************************************************************/
@@ -38,7 +41,6 @@ class AccountStore extends CoreAccountStore {
     super()
 
     this._sleepingQueue_ = new Map()
-    this._serviceLastActiveTS_ = new Map()
 
     /* ****************************************/
     // Actions
@@ -50,6 +52,7 @@ class AccountStore extends CoreAccountStore {
       handleRemoveMailbox: actions.REMOVE_MAILBOX,
       handleReduceMailbox: actions.REDUCE_MAILBOX,
       handleSetCustomAvatarOnMailbox: actions.SET_CUSTOM_AVATAR_ON_MAILBOX,
+      handleCleanMailboxWindowOpenRules: actions.CLEAN_MAILBOX_WINDOW_OPEN_RULES,
 
       // Auth
       handleCreateAuth: actions.CREATE_AUTH,
@@ -73,6 +76,7 @@ class AccountStore extends CoreAccountStore {
 
       // Containers
       handleContainersUpdated: actions.CONTAINERS_UPDATED,
+      handleContainerSAPIUpdated: actions.CONTAINER_SAPIUPDATED,
 
       // Sleep
       handleSleepService: actions.SLEEP_SERVICE,
@@ -90,6 +94,8 @@ class AccountStore extends CoreAccountStore {
       handleChangeActiveServiceToNext: actions.CHANGE_ACTIVE_SERVICE_TO_NEXT,
       handleChangeActiveTabToNext: actions.CHANGE_ACTIVE_TAB_TO_NEXT,
       handleChangeActiveTabToPrev: actions.CHANGE_ACTIVE_TAB_TO_PREV,
+      handleQuickSwitchNextService: actions.QUICK_SWITCH_NEXT_SERVICE,
+      handleQuickSwitchPrevService: actions.QUICK_SWITCH_PREV_SERVICE,
 
       // Mailbox auth teardown
       handleClearMailboxBrowserSession: actions.CLEAR_MAILBOX_BROWSER_SESSION,
@@ -103,7 +109,13 @@ class AccountStore extends CoreAccountStore {
 
       // Reading queue
       handleAddToReadingQueue: actions.ADD_TO_READING_QUEUE,
-      handleRemoveFromReadingQueue: actions.REMOVE_FROM_READING_QUEUE
+      handleRemoveFromReadingQueue: actions.REMOVE_FROM_READING_QUEUE,
+
+      // Google Inbox
+      handleConvertGoogleInboxToGmail: actions.CONVERT_GOOGLE_INBOX_TO_GMAIL,
+
+      // Sync
+      handleUserRequestsIntegratedServiceSync: actions.USER_REQUESTS_INTEGRATED_SERVICE_SYNC
     })
   }
 
@@ -122,6 +134,10 @@ class AccountStore extends CoreAccountStore {
         return acc
       }, {}),
       activeService: this._activeServiceId_,
+      serviceLastActiveTS: Array.from(this._serviceLastActiveTS_.keys()).reduce((acc, id) => {
+        acc[id] = this._serviceLastActiveTS_.get(id)
+        return acc
+      }, {}),
       services: Array.from(this._services_.keys()).reduce((acc, id) => {
         acc[id] = this._services_.get(id).cloneData()
         return acc
@@ -217,26 +233,58 @@ class AccountStore extends CoreAccountStore {
   * @return the generated model
   */
   saveService (id, serviceJS) {
-    const prevService = this.getService(id)
+    const prev = this.getService(id)
     if (serviceJS === null) {
-      if (!prevService) { return }
+      if (!prev) { return }
 
       servicePersistence.removeItem(id)
       this._services_.delete(id)
       this.dispatchToRemote('remoteSetService', [id, null])
 
-      AccountSessionManager.stopManagingService(prevService)
+      AccountSessionManager.stopManagingService(prev)
+
+      // Auto-disconnect integrated-engine
+      IEngine.disconnectService(id)
 
       return undefined
     } else {
       serviceJS.changedTime = new Date().getTime()
       serviceJS.id = id
-      const model = ServiceFactory.modelizeService(serviceJS)
+      const next = ServiceFactory.modelizeService(serviceJS)
       servicePersistence.setJSONItem(id, serviceJS)
-      this._services_.set(id, model)
+      this._services_.set(id, next)
       this.dispatchToRemote('remoteSetService', [id, serviceJS])
-      return model
+
+      // Auto-connect integrated-engine
+      if (!prev) {
+        IEngine.connectService(next.id, next.iengineAlias)
+      }
+
+      return next
     }
+  }
+
+  /**
+  * Resync's the container service API with the models that are in the stores
+  * @return the ids of the containers that were updated
+  */
+  resyncContainerServiceSAPI () {
+    const updatedIds = []
+    this.allServicesOfType(SERVICE_TYPES.CONTAINER).forEach((service) => {
+      const sapi = this.getContainerSAPI(service.containerId)
+      if (!sapi && !service.hasSAPIConfig) { return }
+
+      const sapiHash = sapi ? JSON.stringify(sapi.cloneForService()) : undefined
+      const serviceSapiHash = service.hasSAPIConfig ? JSON.stringify(service.containerSAPI.cloneForService()) : undefined
+      if (sapiHash !== serviceSapiHash) {
+        updatedIds.push(service.id)
+        this.saveService(service.id, service.changeData({
+          containerSAPI: sapi ? sapi.cloneForService() : undefined
+        }))
+      }
+    })
+
+    return updatedIds
   }
 
   /**
@@ -268,9 +316,10 @@ class AccountStore extends CoreAccountStore {
   */
   saveActiveServiceId (serviceId) {
     if (serviceId !== this._activeServiceId_) {
-      this._serviceLastActiveTS_.set(this.activeServiceId(), new Date().getTime())
+      const now = new Date().getTime()
+      this._serviceLastActiveTS_.set(this.activeServiceId(), now)
       this._activeServiceId_ = serviceId
-      this.dispatchToRemote('remoteSetActiveService', [serviceId])
+      this.dispatchToRemote('remoteSetActiveService', [serviceId, now])
       if (serviceId) {
         actions.reduceServiceData.defer(serviceId, ServiceDataReducer.mergeChangesetOnActive)
       }
@@ -327,12 +376,28 @@ class AccountStore extends CoreAccountStore {
   handleLoad (payload) {
     super.handleLoad(payload)
 
+    // Version 4.9.0 and older would convert Google Inbox -> Gmail but not the
+    // service data which can cause problems. To fix this, double check the integrity
+    // of Google_mail services and if the data maps out as google_inbox fix it.
+    // This can probably be removed in a future version
+    this.allServicesOfType(SERVICE_TYPES.GOOGLE_MAIL).forEach((service) => {
+      const serviceData = this.getServiceData(service.id)
+      if (serviceData && serviceData.parentType === SERVICE_TYPES.GOOGLE_INBOX) {
+        this.saveServiceData(serviceData.id, serviceData.changeData({
+          parentType: SERVICE_TYPES.GOOGLE_MAIL
+        }))
+      }
+    })
+
     this.mailboxIds().forEach((mailboxId) => {
       this.startManagingMailboxWithId(mailboxId)
     })
-    this.serviceIds().forEach((serviceId) => {
-      this.startManagingServiceWithId(serviceId)
+    this.allServicesUnordered().forEach((service) => {
+      this.startManagingServiceWithId(service.id)
+      IEngine.connectService(service.id, service.iengineAlias)
     })
+
+    this.resyncContainerServiceSAPI()
   }
 
   /* **************************************************************************/
@@ -418,6 +483,56 @@ class AccountStore extends CoreAccountStore {
       if (!prevAvatarId) { this.preventDefault(); return }
       this.saveMailbox(id, mailbox.changeData({ avatarId: undefined }))
       this.saveAvatar(prevAvatarId, null)
+    }
+  }
+
+  handleCleanMailboxWindowOpenRules ({ id, customProviderIds }) {
+    const mailbox = this.getMailbox(id)
+    if (!mailbox) { this.preventDefault(); return }
+
+    const serviceIds = new Set(this.serviceIds())
+    const mailboxIds = new Set(this.mailboxIds())
+    const providerIds = customProviderIds ? new Set(customProviderIds) : undefined
+    let dirty = false
+
+    // User rules
+    const cleanedUserRules = mailbox.userWindowOpenRules.filter(({ serviceId, mailboxId, providerId }) => {
+      if (mailboxId && !mailboxIds.has(mailboxId)) {
+        dirty = true
+        return false
+      } else if (serviceId && !serviceIds.has(serviceId)) {
+        dirty = true
+        return false
+      } else if (providerId && providerIds && !providerIds.has(providerId)) {
+        dirty = true
+        return false
+      } else {
+        return true
+      }
+    })
+
+    // No match
+    let cleanedNoMatchRule
+    if (mailbox.userNoMatchWindowOpenRule.mailboxId && !mailboxIds.has(mailbox.userNoMatchWindowOpenRule.mailboxId)) {
+      dirty = true
+      cleanedNoMatchRule = { mode: ACMailbox.USER_WINDOW_OPEN_MODES.ASK }
+    } else if (mailbox.userNoMatchWindowOpenRule.serviceId && !serviceIds.has(mailbox.userNoMatchWindowOpenRule.serviceId)) {
+      dirty = true
+      cleanedNoMatchRule = { mode: ACMailbox.USER_WINDOW_OPEN_MODES.ASK }
+    } else if (mailbox.userNoMatchWindowOpenRule.providerId && providerIds && !providerIds.has(mailbox.userNoMatchWindowOpenRule.providerId)) {
+      dirty = true
+      cleanedNoMatchRule = { mode: ACMailbox.USER_WINDOW_OPEN_MODES.ASK }
+    } else {
+      cleanedNoMatchRule = mailbox.userNoMatchWindowOpenRule
+    }
+
+    if (dirty) {
+      this.saveMailbox(id, mailbox.changeData({
+        userWindowOpenRules: cleanedUserRules,
+        userNoMatchWindowOpenRule: cleanedNoMatchRule
+      }))
+    } else {
+      this.preventDefault()
     }
   }
 
@@ -738,9 +853,17 @@ class AccountStore extends CoreAccountStore {
 
     services.forEach((service) => {
       this.saveService(service.id, service.changeData({
-        container: this.getContainer(service.containerId).cloneForService()
+        container: this.getContainer(service.containerId).cloneForService(),
+        containerSAPI: this.getContainerSAPIDataForService(service.containerId)
       }))
     })
+  }
+
+  handleContainerSAPIUpdated () {
+    const updated = this.resyncContainerServiceSAPI()
+    if (updated.length === 0) {
+      this.preventDefault()
+    }
   }
 
   /* **************************************************************************/
@@ -752,17 +875,17 @@ class AccountStore extends CoreAccountStore {
     this.clearServiceSleep(id)
   }
 
-  handleSleepService ({ id }) {
+  handleSleepService ({ id, ignoreChildrenCheck }) {
     if (this.isServiceSleeping(id)) { this.preventDefault(); return }
-    this.sleepService(id)
+    this.sleepService(id, ignoreChildrenCheck)
   }
 
-  handleSleepAllServicesInMailbox ({ id }) {
+  handleSleepAllServicesInMailbox ({ id, ignoreChildrenCheck }) {
     const mailbox = this.getMailbox(id)
     if (!mailbox) { this.preventDefault(); return }
 
     mailbox.allServices.forEach((serviceId) => {
-      this.sleepService(serviceId)
+      this.sleepService(serviceId, ignoreChildrenCheck)
     })
   }
 
@@ -811,22 +934,33 @@ class AccountStore extends CoreAccountStore {
   /**
   * Runs the process of sending a mailbox to sleep whilst also checking if it owns any other windows
   * @param id: the id of the service
+  * @Param ignoreChildrenCheck=false: set to true to ignore checking for child windows
   * @return true if we did sleep, false otherwise
   */
-  sleepService (id) {
+  sleepService (id, ignoreChildrenCheck = false) {
     if (this.isServiceSleeping(id)) { return }
 
     const mailboxesWindow = WaveboxWindow.getOfType(MailboxesWindow)
     const openWindowCount = mailboxesWindow ? mailboxesWindow.tabManager.getOpenWindowCount(id) : 0
-    if (openWindowCount === 0) {
+    if (ignoreChildrenCheck === true || openWindowCount === 0) {
       // Clear previous
       clearTimeout(this._sleepingQueue_.get(id) || null)
       this._sleepingQueue_.delete(id)
 
-      // Record metrics
-      const sleepMetrics = this.generateServiceSleepMetrics(id)
-      this._sleepingMetrics_.set(id, sleepMetrics)
-      this.dispatchToRemote('remoteSetSleepMetrics', [id, sleepMetrics])
+      // Sleep metrics went async after electron 3. We don't want to hold sleep up to generate
+      // the metrics so instead sleep right away and optimistically hope we can generate
+      // metrics. Because the webcontents wont sleep immediately due to ipc and
+      // generating the last screenshot there will normally be time to do this!
+      this._sleepingMetrics_.delete(id)
+      this.dispatchToRemote('remoteSetSleepMetrics', [id, null])
+      Promise.resolve()
+        .then(() => this.generateServiceSleepMetrics(id))
+        .then((metrics) => {
+          this._sleepingMetrics_.set(id, metrics)
+          this.dispatchToRemote('remoteSetSleepMetrics', [id, metrics])
+          this.emitChange()
+        })
+        .catch(() => { /* no-op */ })
 
       // Sleep
       this._sleepingServices_.set(id, true)
@@ -849,15 +983,20 @@ class AccountStore extends CoreAccountStore {
   /**
   * @param mailboxId: the id of the mailbox
   * @param serviceType: the type of service
-  * @return the metrics for the web contents or undefined if not found
+  * @return a promise with the metrics or undefined if not found
   */
   generateServiceSleepMetrics (id) {
     const mailboxesWindow = WaveboxWindow.getOfType(MailboxesWindow)
-    const metric = mailboxesWindow ? mailboxesWindow.tabManager.getServiceMetrics(id) : undefined
-    return metric ? {
-      ...metric,
-      timestamp: new Date().getTime()
-    } : undefined
+    if (!mailboxesWindow) { return Promise.resolve(undefined) }
+
+    const pid = mailboxesWindow.tabManager.getWebContentsOSProcessId(id)
+    if (pid === undefined) { return Promise.resolve(undefined) }
+
+    return Promise.resolve()
+      .then(() => ServicesManager.metricsService.getMetricsForPid(pid))
+      .then((metric) => {
+        return { ...metric, timestamp: new Date().getTime() }
+      })
   }
 
   /* **************************************************************************/
@@ -880,10 +1019,7 @@ class AccountStore extends CoreAccountStore {
     if (!firstService) {
       // If the mailbox is already active we probably want the first service
       if (this.activeMailboxId() !== id) {
-        const lastAccessedId = mailbox.allServices.reduce((acc, serviceId) => {
-          const ts = this._serviceLastActiveTS_.get(serviceId) || 0
-          return ts > acc.ts ? { serviceId, ts } : acc
-        }, { serviceId: undefined, ts: 0 })
+        const lastAccessedId = this.lastAccessedServiceIdInMailbox(mailbox, true)
 
         if (lastAccessedId.serviceId) {
           const now = new Date().getTime()
@@ -1059,6 +1195,28 @@ class AccountStore extends CoreAccountStore {
     } else {
       nextServiceId = allServiceIds[activeIndex - 1] || null
     }
+
+    if (nextServiceId) {
+      actions.changeActiveService.defer(nextServiceId)
+    }
+  }
+
+  handleQuickSwitchNextService () {
+    this.preventDefault()
+
+    const nextServiceId = this.lastAccessedServiceIds(true)
+      .find((serviceId) => serviceId !== this.activeServiceId())
+
+    if (nextServiceId) {
+      actions.changeActiveService.defer(nextServiceId)
+    }
+  }
+
+  handleQuickSwitchPrevService () {
+    this.preventDefault()
+
+    const nextServiceId = this.lastAccessedServiceIds(true).reverse()
+      .find((serviceId) => serviceId !== this.activeServiceId())
 
     if (nextServiceId) {
       actions.changeActiveService.defer(nextServiceId)
@@ -1260,6 +1418,50 @@ class AccountStore extends CoreAccountStore {
       readingQueue: service.readingQueue.filter((b) => b.id !== id)
     }))
   }
+
+  /* **************************************************************************/
+  // Handlers: Google Inbox
+  /* **************************************************************************/
+
+  handleConvertGoogleInboxToGmail ({ serviceId, duplicateFirst }) {
+    const service = this.getService(serviceId)
+    if (!service) { this.preventDefault(); return }
+    if (service.type !== SERVICE_TYPES.GOOGLE_INBOX) { this.preventDefault(); return }
+
+    if (duplicateFirst) {
+      this.preventDefault()
+      const mailbox = this.getMailbox(service.parentId)
+      actions.createService.defer(service.parentId, mailbox.suggestedServiceUILocation, service.changeData({
+        type: SERVICE_TYPES.GOOGLE_MAIL,
+        inboxType: GoogleMailService.INBOX_TYPES.GMAIL_DEFAULT,
+        wasGoogleInboxService: true,
+        id: uuid.v4()
+      }))
+    } else {
+      this.saveService(serviceId, service.changeData({
+        type: SERVICE_TYPES.GOOGLE_MAIL,
+        inboxType: GoogleMailService.INBOX_TYPES.GMAIL_DEFAULT,
+        wasGoogleInboxService: true
+      }))
+      const serviceData = this.getServiceData(serviceId)
+      if (serviceData) {
+        this.saveServiceData(serviceData.id, serviceData.changeData({
+          parentType: SERVICE_TYPES.GOOGLE_MAIL
+        }))
+      }
+    }
+  }
+
+  /* **************************************************************************/
+  // Handlers: Sync
+  /* **************************************************************************/
+
+  handleUserRequestsIntegratedServiceSync ({ serviceId }) {
+    this.preventDefault()
+    IEngine.userRequestsSync(serviceId)
+  }
 }
 
-export default alt.createStore(AccountStore, STORE_NAME)
+const accountStore = alt.createStore(AccountStore, STORE_NAME)
+IEngine.connectAccountStore(accountStore, actions)
+export default accountStore

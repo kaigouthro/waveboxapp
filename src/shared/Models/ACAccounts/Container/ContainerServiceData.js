@@ -37,11 +37,11 @@ class ContainerServiceData extends CoreACServiceData {
   * @override
   */
   getHasUnreadActivity (service) {
-    if (service.supportsWBGAPI && this.hasUnreadActivity) {
-      return this.hasUnreadActivity
-    } else if (service.container.faviconUnreadActivityRegexp && this.faviconIndicatesUnreadActivity) {
+    if (service.supportsWBGAPI && this.wbgapiHasUnreadActivity) {
+      return this.wbgapiHasUnreadActivity
+    } else if (service.faviconUnreadActivityRegexp && this.faviconIndicatesUnreadActivity) {
       return this.faviconIndicatesUnreadActivity
-    } else if (service.container.html5NotificationsGenerateUnreadActivity && this.notificationIndicatesUnreadActivity) {
+    } else if (service.html5NotificationsGenerateUnreadActivity && this.notificationIndicatesUnreadActivity) {
       return this.notificationIndicatesUnreadActivity
     } else {
       return false

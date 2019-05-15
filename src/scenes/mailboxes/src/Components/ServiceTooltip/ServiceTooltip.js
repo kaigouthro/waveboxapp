@@ -8,11 +8,7 @@ import { accountStore, accountActions } from 'stores/account'
 import { settingsStore } from 'stores/settings'
 import ServiceReducer from 'shared/AltStores/Account/ServiceReducers/ServiceReducer'
 import ReactDOM from 'react-dom'
-import { ipcRenderer } from 'electron'
-import {
-  WCRPC_OPEN_RECENT_LINK,
-  WCRPC_OPEN_READING_QUEUE_LINK
-} from 'shared/webContentsRPC'
+import WBRPCRenderer from 'shared/WBRPCRenderer'
 
 class ServiceTooltip extends React.Component {
   /* **************************************************************************/
@@ -181,7 +177,7 @@ class ServiceTooltip extends React.Component {
   */
   handleOpenRecentItem = (evt, serviceId, recentItem) => {
     this.setState({ open: false }, () => {
-      ipcRenderer.send(WCRPC_OPEN_RECENT_LINK, serviceId, recentItem)
+      WBRPCRenderer.wavebox.openRecentLink(serviceId, recentItem)
     })
   }
 
@@ -207,7 +203,19 @@ class ServiceTooltip extends React.Component {
   */
   handleOpenBookmarkItem = (evt, serviceId, bookmarkItem) => {
     this.setState({ open: false }, () => {
-      ipcRenderer.send(WCRPC_OPEN_RECENT_LINK, serviceId, bookmarkItem)
+      WBRPCRenderer.wavebox.openRecentLink(serviceId, bookmarkItem)
+    })
+  }
+
+  /**
+  * Handles editing a bookmark
+  * @param evt: the event that fired
+  * @param serviceId: the id of the service
+  * @param bookmarkItem: the bookmark item to edit
+  */
+  handleEditBookmark = (evt, serviceId, bookmarkItem) => {
+    this.setState({ open: false }, () => {
+      window.location.hash = `/bookmark/edit/${serviceId}/${bookmarkItem.id}`
     })
   }
 
@@ -233,7 +241,7 @@ class ServiceTooltip extends React.Component {
   */
   handleOpenReadingQueueItem = (evt, serviceId, readingItem) => {
     this.setState({ open: false }, () => {
-      ipcRenderer.send(WCRPC_OPEN_READING_QUEUE_LINK, serviceId, readingItem)
+      WBRPCRenderer.wavebox.openReadingQueueLink(serviceId, readingItem)
     })
   }
 
@@ -278,7 +286,7 @@ class ServiceTooltip extends React.Component {
           disablePadding: true
         })}
         enterDelay={openDelay <= 0 ? undefined : openDelay}
-        leaveDelay={openDelay <= 0 ? undefined : 1}
+        leaveDelay={1}
         width={400}
         onClose={this.handleTooltipClose}
         onOpen={this.handleTooltipOpen}
@@ -296,6 +304,7 @@ class ServiceTooltip extends React.Component {
             onOpenRecentItem={this.handleOpenRecentItem}
             onBookmarkRecentItem={this.handleBookmarkRecentItem}
             onOpenBookmarkItem={this.handleOpenBookmarkItem}
+            onEditBookmark={this.handleEditBookmark}
             onDeleteBookmark={this.handleDeleteBookmark}
             onOpenReadingQueueItem={this.handleOpenReadingQueueItem}
             onDeleteReadingQueueItem={this.handleDeleteReadingQueueItem} />

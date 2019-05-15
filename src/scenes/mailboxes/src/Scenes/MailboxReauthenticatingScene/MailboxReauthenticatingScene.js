@@ -1,30 +1,39 @@
 import React from 'react'
+import PropTypes from 'prop-types'
 import shallowCompare from 'react-addons-shallow-compare'
-import AuthenticationInstruction from 'wbui/AuthenticationInstruction'
-import { Dialog, DialogContent } from '@material-ui/core'
+import MailboxReauthenticatingSceneContent from './MailboxReauthenticatingSceneContent'
 import { withStyles } from '@material-ui/core/styles'
+import { RouterDialog } from 'wbui/RouterDialog'
 
 const styles = {
-  dialog: {
+  root: {
     maxWidth: '100%',
     width: '100%',
     height: '100%'
-  },
-  dialogContent: {
-    position: 'relative',
-    backgroundColor: 'rgb(242, 242, 242)'
-  },
-  instruction: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    right: 0
   }
 }
 
 @withStyles(styles)
 class MailboxReauthenticatingScene extends React.Component {
+  /* **************************************************************************/
+  // Class
+  /* **************************************************************************/
+
+  static propTypes = {
+    routeName: PropTypes.string.isRequired
+  }
+
+  /* **************************************************************************/
+  // UI Events
+  /* **************************************************************************/
+
+  /**
+  * Closes the modal
+  */
+  handleClose = () => {
+    window.location.hash = '/'
+  }
+
   /* **************************************************************************/
   // Rendering
   /* **************************************************************************/
@@ -34,19 +43,18 @@ class MailboxReauthenticatingScene extends React.Component {
   }
 
   render () {
-    const { classes } = this.props
+    const { classes, routeName } = this.props
 
     return (
-      <Dialog
+      <RouterDialog
+        routeName={routeName}
         disableEnforceFocus
-        open
         disableBackdropClick
         disableEscapeKeyDown
-        classes={{ paper: classes.dialog }}>
-        <DialogContent className={classes.dialogContent}>
-          <AuthenticationInstruction className={classes.instruction} />
-        </DialogContent>
-      </Dialog>
+        onClick={this.handleClose}
+        classes={{ paper: classes.root }}>
+        <MailboxReauthenticatingSceneContent />
+      </RouterDialog>
     )
   }
 }

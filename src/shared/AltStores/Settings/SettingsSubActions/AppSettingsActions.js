@@ -157,27 +157,11 @@ class AppSettingsActions extends CoreSettingsActions {
   }
 
   /**
-  * Sets whether the mouse navigation listener should be enabled or not
-  * @param enable: true to enable
-  */
-  setEnableMouseNavigationDarwin (enable) {
-    this.dispatchUpdate('enableMouseNavigationDarwin', enable)
-  }
-
-  /**
   * Sets whether to polyfill useragents or not
   * @param enable: true to enable
   */
   setPolyfillUserAgents (enable) {
     this.dispatchUpdate('polyfillUserAgents', enable)
-  }
-
-  /**
-  * Sets whether to apply the mojave checkbox fix
-  * @param enable: true to enable
-  */
-  setDarwinMojaveCheckboxFix (enable) {
-    this.dispatchUpdate('darwinMojaveCheckboxFix', enable)
   }
 
   /**
@@ -193,11 +177,65 @@ class AppSettingsActions extends CoreSettingsActions {
   }
 
   /**
+  * Sets whether to fetch microsoft calls on the main thread
+  * @param use: true to use
+  */
+  setAppThreadFetchMicrosoftHTTP (use) {
+    this.dispatchUpdate('appThreadFetchMicrosoftHTTP', use)
+  }
+
+  /**
+  * Sets whether to force a repaint on window restore
+  * @param force: true to force
+  */
+  setForceWindowPaintOnRestore (force) {
+    this.dispatchUpdate('forceWindowPaintOnRestore', force)
+  }
+
+  /**
+  * @param show: true to show the persist cookies option for accounts
+  */
+  setShowArtificiallyPersistCookies (show) {
+    this.dispatchUpdate('showArtificiallyPersistCookies', show)
+  }
+
+  /**
+  * @param enabled: true if we should enable support
+  */
+  setTouchBarSupportEnabled (enabled) {
+    this.dispatchUpdate('touchBarSupportEnabled', enabled)
+  }
+
+  /**
   * Sets the search provider
   * @param provider: the new search provider
   */
   setSearchProvider (provider) {
     this.dispatchUpdate('searchProvider', provider)
+  }
+
+  /**
+  * Sets the proxy mode
+  * @param mode: the new mode
+  */
+  setProxyMode (mode) {
+    this.dispatchUpdate('proxyMode', mode)
+  }
+
+  /**
+  * Sets the proxy server
+  * @param server: the new server
+  */
+  setProxyServer (server) {
+    this.dispatchUpdate('proxyServer', server)
+  }
+
+  /**
+  * Sets the proxy port
+  * @param port: the new port
+  */
+  setProxyPort (port) {
+    this.dispatchUpdate('proxyPort', port)
   }
 
   /**

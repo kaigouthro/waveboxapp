@@ -6,16 +6,20 @@ import { NotificationService } from 'Notifications'
 import {
   SLACK_FULL_COUNT_SYNC_INTERVAL,
   SLACK_RECONNECT_SOCKET_INTERVAL,
-  SLACK_RTM_RETRY_RECONNECT_MS
+  SLACK_RTM_RETRY_RECONNECT_MS,
+  SLACK_TICKLE_INTERVAL,
+  SLACK_TICKLE_IDLE_MAX_MS
 } from 'shared/constants'
 import Debug from 'Debug'
-import { remote } from 'electron'
 import emoji from 'node-emoji'
 import { accountStore, accountActions, accountDispatch } from '../account'
 import SERVICE_TYPES from 'shared/Models/ACAccounts/ServiceTypes'
 import AuthReducer from 'shared/AltStores/Account/AuthReducers/AuthReducer'
 import SlackServiceDataReducer from 'shared/AltStores/Account/ServiceDataReducers/SlackServiceDataReducer'
 import SlackServiceReducer from 'shared/AltStores/Account/ServiceReducers/SlackServiceReducer'
+import userStore from 'stores/user/userStore'
+import PowerMonitorService from 'shared/PowerMonitorService'
+import WBRPCRenderer from 'shared/WBRPCRenderer'
 
 const MAX_NOTIFICATION_RECORD_AGE = 1000 * 60 * 10 // 10 mins
 const HTML5_NOTIFICATION_DELAY = 1000 * 2 // 2 secs
@@ -214,6 +218,27 @@ class SlackStore {
         actions.reconnectService(serviceId)
       }
     }, SLACK_RECONNECT_SOCKET_INTERVAL)
+    const ticklePoller = setInterval(() => {
+      if (!this.isValidConnection(serviceId, connectionId)) { return }
+      const rtm = this.connections.get(serviceId).rtm
+      if (!rtm) { return }
+
+      if (PowerMonitorService.isSuspended || PowerMonitorService.isScreenLocked) { return }
+
+      const service = accountStore.getState().getService(serviceId)
+      if (!service) { return }
+      if (!userStore.getState().wceTickleSlackRTM(service.rawTickleRTM)) { return }
+
+      PowerMonitorService.querySystemIdleTime()
+        .then((idleTime) => {
+          if (idleTime * 1000 > SLACK_TICKLE_IDLE_MAX_MS) { return }
+          rtm.send('tickle')
+        })
+        .catch((ex) => {
+          // On error, don't send the tickle
+          console.warn('Unable to query system idle time for Slack RTM Socket', ex)
+        })
+    }, SLACK_TICKLE_INTERVAL)
 
     // Start up the socket
     this.connections.set(serviceId, {
@@ -221,7 +246,8 @@ class SlackStore {
       serviceId: serviceId,
       rtm: null,
       fullPoller: fullPoller,
-      reconnectPoller: reconnectPoller
+      reconnectPoller: reconnectPoller,
+      ticklePoller: ticklePoller
     })
 
     Promise.resolve()
@@ -297,12 +323,15 @@ class SlackStore {
             data
           )
         })
-        rtm.on('message:message', (data) => {
+        rtm.on('message:update_thread_state', (data) => {
           accountActions.reduceServiceData(
             serviceId,
-            SlackServiceDataReducer.rtmMessage,
+            SlackServiceDataReducer.updateThreadState,
             data
           )
+        })
+        rtm.on('message:message', (data) => {
+          this._processRtmMessageEvent(serviceId, data)
         })
 
         // Save the connection
@@ -344,6 +373,49 @@ class SlackStore {
   }
 
   /* **************************************************************************/
+  // RTM: Message event
+  /* **************************************************************************/
+
+  /**
+  * Checks if a rtm message mentions a user
+  * @param rtmEvent: the rtm event
+  * @return true if a user was mentioned
+  */
+  _rtmMessageEventSubtypeRequiresSync (rtmEvent) {
+    if (rtmEvent.subtype === 'message_deleted') {
+      if (rtmEvent.channel[0] === 'D') {
+        return true
+      } else {
+        const text = (rtmEvent.previous_message || {}).text
+        return text && text.indexOf('<@') !== -1
+      }
+    } else if (rtmEvent.subtype === 'message_changed') {
+      const nextText = (rtmEvent.message || {}).text
+      const prevText = (rtmEvent.previous_message || {}).text
+      return (prevText && prevText.indexOf('<@') !== -1) || (nextText && nextText.indexOf('<@') !== -1)
+    } else {
+      return false
+    }
+  }
+
+  /**
+  * Processes a RTM message event
+  * @param serviceId: the id of the service
+  * @param rtmEvent: the rtm event that fired
+  */
+  _processRtmMessageEvent (serviceId, rtmEvent) {
+    if (this._rtmMessageEventSubtypeRequiresSync(rtmEvent)) {
+      actions.updateUnreadCounts(serviceId)
+    } else {
+      accountActions.reduceServiceData(
+        serviceId,
+        SlackServiceDataReducer.rtmMessage,
+        rtmEvent
+      )
+    }
+  }
+
+  /* **************************************************************************/
   // Handlers: Reconnection
   /* **************************************************************************/
 
@@ -368,6 +440,7 @@ class SlackStore {
       if (connection.rtm) { connection.rtm.close() }
       clearInterval(connection.fullPoller)
       clearInterval(connection.reconnectPoller)
+      clearInterval(connection.ticklePoller)
       this.connections.delete(connection.serviceId)
     })
     const connections = []
@@ -384,6 +457,7 @@ class SlackStore {
       if (connection.rtm) { connection.rtm.close() }
       clearInterval(connection.fullPoller)
       clearInterval(connection.reconnectPoller)
+      clearInterval(connection.ticklePoller)
       this.connections.delete(connection.serviceId)
     }
   }
@@ -527,7 +601,7 @@ class SlackStore {
     this._markNotificationPublished(slackNotificationId)
 
     // Check to see if we're active and in the channel
-    if (remote.getCurrentWindow().isFocused()) {
+    if (WBRPCRenderer.browserWindow.isFocusedSync()) {
       if (accountState.activeServiceId() === serviceId) {
         const currentUrl = accountDispatch.getCurrentUrl(serviceId) || ''
         if (currentUrl.indexOf(message.channel) !== -1) { return }

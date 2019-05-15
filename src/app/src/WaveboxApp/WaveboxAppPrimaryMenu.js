@@ -6,6 +6,13 @@ import MenuTool from 'shared/Electron/MenuTool'
 import { evtMain } from 'AppEvents'
 import { toKeyEvent } from 'keyboardevent-from-electron-accelerator'
 import WaveboxAppPrimaryMenuActions from './WaveboxAppPrimaryMenuActions'
+import QuickSwitchAcceleratorHandler from './QuickSwitchAcceleratorHandler'
+let KeyboardLayout
+try {
+  KeyboardLayout = process.platform === 'darwin' ? require('keyboard-layout') : null
+} catch (ex) {
+  KeyboardLayout = null
+}
 
 class WaveboxAppPrimaryMenu {
   /* ****************************************************************************/
@@ -18,6 +25,15 @@ class WaveboxAppPrimaryMenu {
     this._lastUserEmail = null
     this._lastMenu = null
     this._hiddenShortcuts = new Map()
+
+    this._quickSwitchAcceleratorHandler = new QuickSwitchAcceleratorHandler(null, null)
+    this._quickSwitchAcceleratorHandler.on('fast-switch-next', WaveboxAppPrimaryMenuActions.quickSwitchNext)
+    this._quickSwitchAcceleratorHandler.on('fast-switch-prev', WaveboxAppPrimaryMenuActions.quickSwitchPrev)
+    this._quickSwitchAcceleratorHandler.on('present-options-next', WaveboxAppPrimaryMenuActions.quickSwitchPresentOptionsNext)
+    this._quickSwitchAcceleratorHandler.on('present-options-prev', WaveboxAppPrimaryMenuActions.quickSwitchPresentOptionsPrev)
+    this._quickSwitchAcceleratorHandler.on('next-option', WaveboxAppPrimaryMenuActions.quickSwitchNextOption)
+    this._quickSwitchAcceleratorHandler.on('prev-option', WaveboxAppPrimaryMenuActions.quickSwitchPrevOption)
+    this._quickSwitchAcceleratorHandler.on('select-option', WaveboxAppPrimaryMenuActions.quickSwitchSelectOption)
 
     accountStore.listen(this.handleMailboxesChanged)
     settingsStore.listen(this.handleAcceleratorsChanged)
@@ -112,7 +128,7 @@ class WaveboxAppPrimaryMenu {
           { type: 'separator' },
           {
             label: 'Quit',
-            click: WaveboxAppPrimaryMenuActions.fullQuit,
+            click: () => WaveboxAppPrimaryMenuActions.fullQuit(accelerators.quit),
             accelerator: accelerators.quit
           }
         ].filter((item) => item !== undefined)
@@ -149,7 +165,19 @@ class WaveboxAppPrimaryMenu {
           {
             label: 'Paste and match style',
             click: WaveboxAppPrimaryMenuActions.pasteAndMatchStyle,
-            accelerator: accelerators.pasteAndMatchStyle
+            accelerator: accelerators.pasteAndMatchStyle,
+            // Fix for #967 paste event fires twice in contentEditable and content is pasted twice
+            // Looks like the Slack team had the same problem + this fix: electron/issues/15719
+            //
+            // This only appears to affect win32 and linux, macOS behaves as expected. The actual
+            // bug is with the binding of CmdOrCtrl+Shift+V not the functionality, so if the
+            // accelerator is swapped and used elsewhere you'll see the same bug with it. Really
+            // we should look out for Ctrl+Shift+V on all menu items and capture there too
+            // but it's a fringe case changing doing this & hopefully chromium will fix it on
+            // the next update cycle. I can't see any ill effect from setting registerAccelerator=false
+            // and accelerator to be something else but wouldn't want to optimistacally do it for
+            // all items
+            registerAccelerator: !(process.platform === 'linux' || process.platform === 'win32')
           },
           {
             label: 'Select All',
@@ -195,6 +223,12 @@ class WaveboxAppPrimaryMenu {
           },
           { type: 'separator' },
           {
+            label: 'Open Quick Switch',
+            click: WaveboxAppPrimaryMenuActions.openCommandPalette,
+            accelerator: accelerators.commandPalette
+          },
+          { type: 'separator' },
+          {
             label: 'Navigate Back',
             click: WaveboxAppPrimaryMenuActions.mailboxNavBack,
             accelerator: accelerators.navigateBack
@@ -212,6 +246,11 @@ class WaveboxAppPrimaryMenu {
           },
           { type: 'separator' },
           {
+            label: 'Actual Size',
+            click: WaveboxAppPrimaryMenuActions.zoomReset,
+            accelerator: accelerators.zoomReset
+          },
+          {
             label: 'Zoom In',
             click: WaveboxAppPrimaryMenuActions.zoomIn,
             accelerator: accelerators.zoomIn
@@ -220,11 +259,6 @@ class WaveboxAppPrimaryMenu {
             label: 'Zoom Out',
             click: WaveboxAppPrimaryMenuActions.zoomOut,
             accelerator: accelerators.zoomOut
-          },
-          {
-            label: 'Reset Zoom',
-            click: WaveboxAppPrimaryMenuActions.zoomReset,
-            accelerator: accelerators.zoomReset
           },
           { type: 'separator' },
           {
@@ -324,15 +358,26 @@ class WaveboxAppPrimaryMenu {
             click: WaveboxAppPrimaryMenuActions.toggleWaveboxMini,
             accelerator: accelerators.toggleWaveboxMini
           }
-        ].concat(mailboxMenuConfig.tabCount > 1 ? [
+        ].concat(mailboxMenuConfig.tabCount > 0 ? [
           { type: 'separator' },
           {
-            label: 'Previous Tab',
+            label: 'Quick Switch Next Tab',
+            click: this._quickSwitchAcceleratorHandler.nextAcceleratorFired,
+            accelerator: accelerators.quickSwitchNext
+          },
+          {
+            label: 'Quick Switch Previous Tab',
+            click: this._quickSwitchAcceleratorHandler.prevAcceleratorFired,
+            accelerator: accelerators.quickSwitchPrev
+          }
+        ] : []).concat(mailboxMenuConfig.tabCount > 1 ? [
+          {
+            label: 'Cycle Previous Tab',
             click: WaveboxAppPrimaryMenuActions.prevMailboxTab,
             accelerator: accelerators.prevTab
           },
           {
-            label: 'Next Tab',
+            label: 'Cycle Next Tab',
             click: WaveboxAppPrimaryMenuActions.nextMailboxTab,
             accelerator: accelerators.nextTab
           }
@@ -352,7 +397,8 @@ class WaveboxAppPrimaryMenu {
           { label: 'Privacy', click: WaveboxAppPrimaryMenuActions.privacy },
           { label: 'EULA', click: WaveboxAppPrimaryMenuActions.eula },
           { type: 'separator' },
-          { label: 'Restart in Safe mode', click: WaveboxAppPrimaryMenuActions.restartSafeMode }
+          { label: 'Restart in Safe mode', click: WaveboxAppPrimaryMenuActions.restartSafeMode },
+          { label: 'Disable Hardware Acceleration and Restart', click: WaveboxAppPrimaryMenuActions.restartWithoutHWAcceleration }
         ]
       }
     ])
@@ -385,16 +431,27 @@ class WaveboxAppPrimaryMenu {
 
     const lastMenu = this._lastMenu
     this._lastMenu = this.build(accelerators, mailboxMenuConfig, userEmail)
+    this._quickSwitchAcceleratorHandler.changeAccelerator(
+      accelerators.quickSwitchNext,
+      accelerators.quickSwitchPrev
+    )
     Menu.setApplicationMenu(this._lastMenu)
     this.updateHiddenShortcuts(accelerators)
 
     // Prevent Memory leak
     if (lastMenu) {
-      // Wait some time for the linuc dbus-menu to catch up. Not waiting appears to be the
-      // root cause of #790. Shouldn't do any harm on other platforms either
+      // We wait here for two reasons...
+      //
+      // 1. Linuc dbus-menu to catch up. Not waiting appears to be the
+      // root cause of #790. 1000ms wait is sufficient
+      //
+      // 2. Destroying the menu on macOS whilst its open causes the click
+      // event not to fire. Open and Close callbacks don't fire on Appliaction
+      // Menu, so instead wait 30000ms - enough time for the user to probably
+      // action what they want to, but not long enough to cause a big memory leak
       setTimeout(() => {
         lastMenu.destroy()
-      }, 1000)
+      }, 30000)
     }
   }
 
@@ -437,9 +494,9 @@ class WaveboxAppPrimaryMenu {
   * Binds the current set of hidden shortcuts
   */
   bindHiddenShortcuts = () => {
-    Array.from(this._hiddenShortcuts.keys()).forEach((shortcut) => {
+    Array.from(this._hiddenShortcuts.values()).forEach(([accel, fn]) => {
       try {
-        globalShortcut.register(shortcut, this._hiddenShortcuts.get(shortcut))
+        globalShortcut.register(accel, fn)
       } catch (ex) { }
     })
   }
@@ -448,11 +505,56 @@ class WaveboxAppPrimaryMenu {
   * Unbinds the current set of hidden shortcuts
   */
   unbindHiddenShortcuts = () => {
-    Array.from(this._hiddenShortcuts.keys()).forEach((shortcut) => {
+    Array.from(this._hiddenShortcuts.values()).forEach(([accel]) => {
       try {
-        globalShortcut.unregister(shortcut)
+        globalShortcut.unregister(accel)
       } catch (ex) { }
     })
+  }
+
+  /**
+  * Adds a hidden shortcut
+  * @param id: the id of the shortcut
+  * @param accel: the accelerator string
+  * @param fn: the accelerator function
+  */
+  _addHiddenShortcut (id, accel, fn) {
+    if (this._hiddenShortcuts.has(id)) {
+      const prev = this._hiddenShortcuts.get(id)
+      if (prev.accel !== accel || prev.fn !== accel) {
+        try { globalShortcut.unregister(prev.accel) } catch (ex) { }
+
+        this._hiddenShortcuts.set(id, [accel, fn])
+        if (BrowserWindow.getFocusedWindow()) {
+          try {
+            globalShortcut.register(accel, fn)
+          } catch (ex) { }
+        }
+      }
+    } else {
+      this._hiddenShortcuts.set(id, [accel, fn])
+      if (BrowserWindow.getFocusedWindow()) {
+        try {
+          globalShortcut.register(accel, fn)
+        } catch (ex) { }
+      }
+    }
+  }
+
+  /**
+  * Adds a hidden shortcut
+  * @param id: the id of the shortcut
+  */
+  _removeHiddenShortcut (id) {
+    if (this._hiddenShortcuts.has(id)) {
+      const prev = this._hiddenShortcuts.get(id)
+      this._hiddenShortcuts.delete(id)
+      if (BrowserWindow.getFocusedWindow()) {
+        try {
+          globalShortcut.unregister(prev[0])
+        } catch (ex) { }
+      }
+    }
   }
 
   /**
@@ -460,25 +562,34 @@ class WaveboxAppPrimaryMenu {
   * @param accelerators: the accelerators to use
   */
   updateHiddenShortcuts (accelerators) {
-    const hiddenZoomInShortcut = process.platform === 'darwin' ? 'Cmd+=' : 'Ctrl+='
-    if (accelerators.zoomIn === accelerators.zoomInDefault) {
-      if (!this._hiddenShortcuts.has(hiddenZoomInShortcut)) {
-        this._hiddenShortcuts.set(hiddenZoomInShortcut, () => WaveboxAppPrimaryMenuActions.zoomIn())
-        if (BrowserWindow.getFocusedWindow()) {
-          try {
-            globalShortcut.register(hiddenZoomInShortcut, this._hiddenShortcuts.get(hiddenZoomInShortcut))
-          } catch (ex) { }
-        }
-      }
+    // On Chrome CmdOrCtrl+= also functions as CmdOrCtrl+Plus. Try to emulate this behaviour
+    const emulatedZoomShortcut = process.platform === 'darwin' ? 'Cmd+=' : 'Ctrl+='
+    let emulateZoom = true
+    if (accelerators.zoomIn !== accelerators.zoomInDefault) {
+      emulateZoom = false
+    } else if (accelerators.hasLocalAccelerator(['Cmd+=', 'Command+=', 'Ctrl+=', 'Control+=', 'CmdOrCtrl+=', 'CommandOrControl+='])) {
+      emulateZoom = false
+    } else if (process.platform === 'darwin' && KeyboardLayout && KeyboardLayout.getCurrentKeyboardLayout() === 'com.apple.keylayout.Dvorak') {
+      emulateZoom = false
+    }
+
+    if (emulateZoom) {
+      this._addHiddenShortcut('SYSTEM_zoom', emulatedZoomShortcut, WaveboxAppPrimaryMenuActions.zoomIn)
     } else {
-      if (this._hiddenShortcuts.has(hiddenZoomInShortcut)) {
-        this._hiddenShortcuts.delete(hiddenZoomInShortcut)
-        if (BrowserWindow.getFocusedWindow()) {
-          try {
-            globalShortcut.unregister(hiddenZoomInShortcut)
-          } catch (ex) { }
-        }
-      }
+      this._removeHiddenShortcut('SYSTEM_zoom')
+    }
+
+    // Bind additional alt shortcuts
+    if (accelerators.navigateBackAlt) {
+      this._addHiddenShortcut('navigateBackAlt', accelerators.navigateBackAlt, WaveboxAppPrimaryMenuActions.mailboxNavBack)
+    } else {
+      this._removeHiddenShortcut('navigateBackAlt')
+    }
+
+    if (accelerators.navigateForwardAlt) {
+      this._addHiddenShortcut('navigateForwardAlt', accelerators.navigateForwardAlt, WaveboxAppPrimaryMenuActions.mailboxNavForward)
+    } else {
+      this._removeHiddenShortcut('navigateForwardAlt')
     }
   }
 
@@ -536,7 +647,7 @@ class WaveboxAppPrimaryMenu {
 
   /**
   * Converts an accelerator to an input key event, removing any quirks
-  * @param accelerator: the accelertor
+  * @param accelerator: the accelerator
   * @return the input event that can be matched
   */
   _acceleratorToInputKeyEvent (accelerator) {

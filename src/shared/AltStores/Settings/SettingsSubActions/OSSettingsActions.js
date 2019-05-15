@@ -46,6 +46,13 @@ class OSSettingsActions extends CoreSettingsActions {
   }
 
   /**
+  * @param use: true to use the download handler, false otherwise
+  */
+  setUseAsyncDownloadHandler (use) {
+    this.dispatchUpdate('useAsyncDownloadHandler', use)
+  }
+
+  /**
   * @param enabled: true to enable notifications, false otherwise
   */
   setNotificationsEnabled (enabled) {
@@ -91,10 +98,31 @@ class OSSettingsActions extends CoreSettingsActions {
   }
 
   /**
+  * Sets whether to mute notifications when suspended
+  */
+  setNotificationsMutedWhenSuspended (muted) {
+    this.dispatchUpdate('notificationsMutedWhenSuspended', muted)
+  }
+
+  /**
   * @param background: true to open links in the background
   */
   setOpenLinksInBackground (background) {
     this.dispatchUpdate('openLinksInBackground', background)
+  }
+
+  /**
+  * @param behaviour: the new behaviour
+  */
+  setLinkBehaviourWithShift (behaviour) {
+    this.dispatchUpdate('linkBehaviourWithShift', behaviour)
+  }
+
+  /**
+  * @param behaviour: the new behaviour
+  */
+  setLinkBehaviourWithCmdOrCtrl (behaviour) {
+    this.dispatchUpdate('linkBehaviourWithCmdOrCtrl', behaviour)
   }
 
   /**

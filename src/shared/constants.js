@@ -11,6 +11,7 @@ const days = function (days) {
   return 1000 * 60 * 60 * 24 * days
 }
 
+const COMMAND_PALETTE_VALID_MODIFIERS_ARRAY = ['/', '?', '#', '@', '$']
 module.exports = Object.freeze({
   // App
   APP_ID: 'wavebox.io',
@@ -36,24 +37,19 @@ module.exports = Object.freeze({
   // Mailboxes
   MAILBOX_SLEEP_WAIT: minutes(5),
   MAILBOX_SLEEP_EXTEND: seconds(30),
-  REFOCUS_MAILBOX_INTERVAL_MS: 300,
   MAILBOX_INTELLI_ACTIVE_MAX_TS: Infinity,
   SERVICE_LOCAL_AVATAR_PREFIX: 'SERVICE_LOCAL:',
   AVATAR_TIMESTAMP_PREFIX: '__TIMESTAMP__:',
 
-  // Google
-  GOOGLE_PROFILE_SYNC_INTERVAL: hours(6),
-  GOOGLE_MAILBOX_WATCH_INTERVAL: days(6),
-  GOOGLE_MAILBOX_WATCH_THROTTLE: hours(1),
-
-  // Trello
-  TRELLO_PROFILE_SYNC_INTERVAL: hours(6),
-  TRELLO_NOTIFICATION_SYNC_INTERVAL: seconds(30),
+  // Settings
+  SETT_ASSET_TIMESTAMP_PREFIX: '__TIMESTAMP__:',
 
   // Slack
   SLACK_FULL_COUNT_SYNC_INTERVAL: minutes(5),
   SLACK_RECONNECT_SOCKET_INTERVAL: minutes(1),
   SLACK_RTM_RETRY_RECONNECT_MS: seconds(15),
+  SLACK_TICKLE_INTERVAL: seconds(60),
+  SLACK_TICKLE_IDLE_MAX_MS: minutes(10),
 
   // Microsoft
   MICROSOFT_PROFILE_SYNC_INTERVAL: hours(6),
@@ -66,6 +62,8 @@ module.exports = Object.freeze({
   SYNC_SOCKET_RECONNECT_RANGE: seconds(4.5),
   USER_PROFILE_SYNC_INTERVAL: hours(6),
   USER_PROFILE_DEFERED_SYNC_ON_CREATE: minutes(15),
+  USER_PROFILE_SYNC_THROTTLE: seconds(30),
+  USER_PROFILE_SYNC_RETRY: minutes(3),
 
   // Dictionaries
   PREINSTALLED_DICTIONARIES: ['en_US'],
@@ -90,6 +88,7 @@ module.exports = Object.freeze({
   // Live autoupdate
   EXTENSION_AUTO_UPDATE_INTERVAL: hours(2),
   WIRE_CONFIG_AUTO_UPDATE_INTERVAL: hours(2),
+  IENGINE_AUTO_UPDATE_INTERVAL: hours(2),
 
   // Cookies
   ARTIFICIAL_COOKIE_PERSIST_WAIT: seconds(30),
@@ -117,10 +116,12 @@ module.exports = Object.freeze({
   KB_URL: 'https://wavebox.io/kb',
   GITHUB_URL: 'https://github.com/wavebox/waveboxapp/',
   GITHUB_ISSUE_URL: 'https://github.com/wavebox/waveboxapp/issues/',
+  GITHUB_RELEASES_URL: 'https://github.com/wavebox/waveboxapp/releases/',
   PRIVACY_URL: 'https://wavebox.io/privacy/',
   TERMS_URL: 'https://wavebox.io/terms/',
   EULA_URL: 'https://wavebox.io/eula/',
   USER_SCRIPTS_WEB_URL: 'https://github.com/wavebox/wavebox-user-scripts',
+  SERVICE_API_WEB_URL: 'https://github.com/wavebox/wavebox-service-api',
   QUICK_START_WEB_URL: 'https://wavebox.io/quick_start_guide',
   KB_BETA_CHANNEL_URL: 'https://wavebox.io/kb/beta-channel',
 
@@ -131,8 +132,11 @@ module.exports = Object.freeze({
   UPDATE_FEED_MANUAL: 'https://waveboxio.com/updates/latest/',
   UPDATE_CHECK_INTERVAL: hours(12),
   UPDATE_USER_MANUAL_DOWNLOAD_STABLE: 'https://wavebox.io/download',
-  UPDATE_USER_MANUAL_DOWNLOAD_BETA: 'https://github.com/wavebox/waveboxapp/releases',
+  UPDATE_USER_MANUAL_DOWNLOAD_BETA: 'https://github.com/wavebox/waveboxapp/releases/',
+  UPDATE_USER_CHANGELOG_STABLE: 'https://github.com/wavebox/waveboxapp/releases/latest/',
+  UPDATE_USER_CHANGELOG_BETA: 'https://github.com/wavebox/waveboxapp/releases/',
 
+  // Capture urls
   WAVEBOX_CAPTURE_URL_HOSTNAMES: [
     'wavebox.io',
     'waveboxio.com'
@@ -147,5 +151,10 @@ module.exports = Object.freeze({
     WAVEBOX_AUTH_AFFILIATE: '/app/redirect/waveboxauth/affiliate',
     WAVEBOX_PRO_BUY: '/app/redirect/pro/buy',
     ADD_MAILBOX: '/app/redirect/mailbox/add'
-  }
+  },
+
+  // Command Palette
+  COMMAND_PALETTE_ALL_TERM: '**',
+  COMMAND_PALETTE_VALID_MODIFIERS: new Set(COMMAND_PALETTE_VALID_MODIFIERS_ARRAY),
+  COMMAND_PALETTE_ALL_COMMAND_TERMS: new Set(COMMAND_PALETTE_VALID_MODIFIERS_ARRAY.map((m) => `${m}*`))
 })

@@ -1,4 +1,4 @@
-import { ipcMain, webContents, BrowserWindow, app } from 'electron'
+import { ipcMain, webContents, BrowserWindow } from 'electron'
 import { accountStore } from 'stores/account'
 import { evtMain } from 'AppEvents'
 import {
@@ -204,19 +204,18 @@ class MailboxesWindowTabManager {
   }
 
   /**
-  * Gets the metrics for a running service
-  * @param serviceId: the id of service
-  * @return the metrics for the service or undefined
+  * Gets the os process id for a service
+  * @param serviceId: the id of the service
+  * @return the process id for the webcontents or undefined
   */
-  getServiceMetrics (serviceId) {
-    const wcId = this.getWebContentsId(serviceId)
-    if (!wcId) { return undefined }
+  getWebContentsOSProcessId (serviceId) {
+    const webContentsId = this.getWebContentsId(serviceId)
+    if (webContentsId === undefined) { return undefined }
 
-    const wc = webContents.fromId(wcId)
+    const wc = webContents.fromId(webContentsId)
     if (!wc) { return undefined }
 
-    const pid = wc.getOSProcessId()
-    return app.getAppMetrics().find((metric) => metric.pid === pid)
+    return wc.getOSProcessId()
   }
 
   /* ****************************************************************************/
@@ -280,12 +279,15 @@ class MailboxesWindowTabManager {
   */
   getOpenWindowCount (serviceId) {
     const mailboxesWindowId = WaveboxWindow.fromWebContentsId(this.webContentsId).browserWindowId
+
     const count = WaveboxWindow.all().reduce((acc, w) => {
       if (w.browserWindowId === mailboxesWindowId) { return acc }
       const windowCount = w.tabIds().reduce((acc, tabId) => {
         const meta = w.tabMetaInfo(tabId)
         if (!meta) { return acc }
-        if (!meta.backing === WINDOW_BACKING_TYPES.MAILBOX_SERVICE) { return acc }
+        if (meta.backing !== WINDOW_BACKING_TYPES.MAILBOX_SERVICE) { return acc }
+        if (meta.serviceId !== serviceId) { return acc }
+
         return acc + 1
       }, 0)
       return acc + windowCount

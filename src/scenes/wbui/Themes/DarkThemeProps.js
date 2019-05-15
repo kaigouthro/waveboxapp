@@ -72,6 +72,28 @@ export default {
         icon: {
           color: { default: blueGrey[400], hover: blueGrey[200] }
         }
+      },
+      downloads: {
+        icon: {
+          color: { default: blue[600], hover: blue[200] }
+        }
+      },
+      busy: {
+        icon: {
+          color: { default: blue[600] }
+        }
+      },
+      mailbox: {
+        activeIndicator: {
+          bar: {
+            active: '#FFFFFF',
+            hover: '#FFFFFF'
+          },
+          banner: {
+            active: '#1B2327',
+            hover: '#1B2327'
+          }
+        }
       }
     },
     toolbar: {

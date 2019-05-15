@@ -1,5 +1,12 @@
 import ServiceDataReducer from './ServiceDataReducer'
 
+const IGNORED_RTM_MESSAGE_SUBTYPES = new Set([
+  'message_deleted',
+  'message_changed',
+  'channel_join', // Doesn't generate an unread
+  'message_replied' // Sent on thread reply. We'll pick this up in "update_thread_state"
+])
+
 class SlackServiceDataReducer extends ServiceDataReducer {
   /* **************************************************************************/
   // Class
@@ -19,6 +26,11 @@ class SlackServiceDataReducer extends ServiceDataReducer {
   */
   static setSlackUnreadInfo (service, serviceData, unreadInfo) {
     return serviceData.changeData({
+      slackUnreadThreadInfo: {
+        has_unreads: unreadInfo.threads.has_unreads,
+        mention_count: unreadInfo.threads.mention_count,
+        mention_count_by_channel: unreadInfo.threads.mention_count_by_channel
+      },
       slackUnreadChannelInfo: unreadInfo.channels.reduce((acc, channel) => {
         acc[channel.id] = {
           id: channel.id,
@@ -152,6 +164,22 @@ class SlackServiceDataReducer extends ServiceDataReducer {
     }
   }
 
+  /**
+  * Updates the thread state
+  * @param service: the parent service
+  * @param serviceData: the serviceData to update
+  * @param rtmEvent: the event that came through from the rtm IM
+  */
+  static updateThreadState (service, serviceData, rtmEvent) {
+    return serviceData.changeData({
+      slackUnreadThreadInfo: {
+        has_unreads: rtmEvent.has_unreads,
+        mention_count: rtmEvent.mention_count,
+        mention_count_by_channel: rtmEvent.mention_count_by_channel
+      }
+    })
+  }
+
   /* **************************************************************************/
   // Unread: new messages
   /* **************************************************************************/
@@ -163,6 +191,15 @@ class SlackServiceDataReducer extends ServiceDataReducer {
   * @param rtmEvent: the event that came through from the rtm
   */
   static rtmMessage (service, serviceData, rtmEvent) {
+    if (IGNORED_RTM_MESSAGE_SUBTYPES.has(rtmEvent.subtype)) {
+      // This subtype shouldn't produce activity/badges, or is duplicated in another pipe message and should be ignored
+      return undefined
+    }
+    if (rtmEvent.thread_ts !== undefined) {
+      // This is notifying about a thread change, We'll pick this up in "update_thread_state"
+      return undefined
+    }
+
     if (service.hasSelfOverview) {
       if (service.selfOverview.id === rtmEvent.user) {
         return undefined // We created the message, nothing to do
@@ -188,6 +225,8 @@ class SlackServiceDataReducer extends ServiceDataReducer {
   */
   static rtmChannelMessage (service, serviceData, rtmEvent) {
     const channelInfo = serviceData.slackUnreadChannelInfo[rtmEvent.channel]
+    if (rtmEvent.text === undefined) { return undefined }
+
     if (channelInfo) {
       const userMentioned = (rtmEvent.text || '').indexOf(`<@${service.authUserId}>`) !== -1
       return serviceData.changeDataWithChangeset({

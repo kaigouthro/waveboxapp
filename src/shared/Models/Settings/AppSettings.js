@@ -17,6 +17,12 @@ const SEARCH_PROVIDER_NAMES = {
   [SEARCH_PROVIDERS.DUCK_DUCK]: 'Duck Duck Go',
   [SEARCH_PROVIDERS.DUCK_DUCK_WB]: 'Duck Duck Go'
 }
+const PROXY_MODES = {
+  AUTO: 'AUTO',
+  DISABLED: 'DISABLED',
+  SOCKS_MANUAL: 'SOCKS_MANUAL',
+  HTTP_MANUAL: 'HTTP_MANUAL'
+}
 
 class AppSettings extends Model {
   /* **************************************************************************/
@@ -27,6 +33,7 @@ class AppSettings extends Model {
   static get SUPPORTS_MIXED_SANDBOX_MODE () { return true }
   static get SEARCH_PROVIDERS () { return SEARCH_PROVIDERS }
   static get SEARCH_PROVIDER_NAMES () { return SEARCH_PROVIDER_NAMES }
+  static get PROXY_MODES () { return PROXY_MODES }
 
   /**
   * Generates a search provider url for a term
@@ -102,12 +109,14 @@ class AppSettings extends Model {
   get isolateMailboxProcesses () { return this._value_('isolateMailboxProcesses', false) }
   get enableMixedSandboxMode () { return this._value_('enableMixedSandboxMode', true) }
   get enableWindowOpeningEngine () { return this._value_('enableWindowOpeningEngine', true) }
-  get enableMouseNavigationDarwin () { return this._value_('enableMouseNavigationDarwin', true) }
   get polyfillUserAgents () { return this._value_('polyfillUserAgents', true) }
-  get darwinMojaveCheckboxFix () { return this._value_('darwinMojaveCheckboxFix', true) }
   get concurrentServiceLoadLimit () { return this._value_('concurrentServiceLoadLimit', 0) }
   get concurrentServiceLoadLimitIsAuto () { return this.concurrentServiceLoadLimit === 0 }
   get concurrentServiceLoadLimitIsNone () { return this.concurrentServiceLoadLimit === -1 }
+  get rawAppThreadFetchMicrosoftHTTP () { return this._value_('appThreadFetchMicrosoftHTTP', undefined) }
+  get forceWindowPaintOnRestore () { return this._value_('forceWindowPaintOnRestore', false) }
+  get showArtificiallyPersistCookies () { return this._value_('showArtificiallyPersistCookies', false) }
+  get touchBarSupportEnabled () { return this._value_('touchBarSupportEnabled', false) }
 
   /* **************************************************************************/
   // Properties: Search
@@ -125,6 +134,28 @@ class AppSettings extends Model {
   */
   generateSearchProviderUrl (term) {
     return this.constructor.generateSearchProviderUrl(this.searchProvider, term)
+  }
+
+  /* **************************************************************************/
+  // Properties: Network
+  /* **************************************************************************/
+
+  get proxyMode () { return this._value_('proxyMode', PROXY_MODES.AUTO) }
+  get proxyServer () { return this._value_('proxyServer', '') }
+  get proxyPort () { return this._value_('proxyPort', '') }
+  get manualProxyString () {
+    const server = this.proxyServer
+    const port = this.proxyPort
+    if (!server || !port) { return undefined }
+
+    switch (this.proxyMode) {
+      case PROXY_MODES.HTTP_MANUAL:
+        return `${server}:${port}`
+      case PROXY_MODES.SOCKS_MANUAL:
+        return `socks5://${server}:${port}`
+      default:
+        return undefined
+    }
   }
 }
 

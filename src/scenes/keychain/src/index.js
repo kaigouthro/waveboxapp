@@ -1,11 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import Provider from 'Scenes/Provider'
-import { webFrame } from 'electron'
-
-// Prevent zooming
-webFrame.setVisualZoomLevelLimits(1, 1)
-webFrame.setLayoutZoomLevelLimits(1, 1)
+import TopLevelErrorBoundary from 'wbui/TopLevelErrorBoundary'
 
 // Prevent Drag/Drop
 document.addEventListener('drop', (evt) => {
@@ -18,4 +14,8 @@ document.addEventListener('dragover', (evt) => {
 }, false)
 
 // Render
-ReactDOM.render((<Provider />), document.getElementById('ReactComponent-AppScene'))
+ReactDOM.render((
+  <TopLevelErrorBoundary>
+    <Provider />
+  </TopLevelErrorBoundary>
+), document.getElementById('ReactComponent-AppScene'))

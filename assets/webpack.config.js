@@ -17,8 +17,12 @@ module.exports = function (env) {
       filename: '__.js'
     },
     plugins: [
-      new CleanWebpackPlugin(['fonts', 'icons', 'images'], {
-        root: BIN_DIR,
+      new CleanWebpackPlugin({
+        cleanOnceBeforeBuildPatterns: [
+          path.join(BIN_DIR, 'fonts'),
+          path.join(BIN_DIR, 'icons'),
+          path.join(BIN_DIR, 'images')
+        ],
         verbose: isVerboseLog,
         dry: false
       }),
@@ -26,7 +30,8 @@ module.exports = function (env) {
         { from: path.join(__dirname, 'audio'), to: 'audio', force: true },
         { from: path.join(__dirname, 'fonts'), to: 'fonts', force: true },
         { from: path.join(__dirname, 'icons'), to: 'icons', force: true },
-        { from: path.join(__dirname, 'images'), to: 'images', force: true }
+        { from: path.join(__dirname, 'images'), to: 'images', force: true },
+        { from: path.join(__dirname, 'wbie'), to: 'wbie', force: true }
       ], {
         ignore: [ '.DS_Store' ]
       })

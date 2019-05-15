@@ -1,9 +1,9 @@
-import PropTypes from 'prop-types'
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { ELEVATED_LOG_PREFIX } from 'shared/constants'
 import electron from 'electron'
 import camelCase from './camelCase'
+import WebViewGroupEventDispatcher from './WebViewGroupEventDispatcher'
 import {
   WEBVIEW_EVENTS,
   REACT_WEBVIEW_EVENTS,
@@ -15,7 +15,12 @@ import {
 const WARN_CAPTURE_PAGE_TIMEOUT = 3000
 const MAX_CAPTURE_PAGE_TIMEOUT = 4000
 const SEND_RESPOND_PREFIX = '__SEND_RESPOND__'
-const INTERCEPTED_WEBVIEW_EVENTS = new Set(['ipc-message', 'console-message', 'dom-ready'])
+const INTERCEPTED_WEBVIEW_EVENTS = new Set([
+  'ipc-message',
+  'console-message',
+  'dom-ready',
+  'did-attach'
+])
 
 let stylesheetAttached = false
 const stylesheet = document.createElement('style')
@@ -26,12 +31,15 @@ stylesheet.innerHTML = `
   .RC-WebView-Root>webview.capture-in-progress { visibility: visible !important; }
 `
 
+const privIpcPromises = Symbol('privIpcPromises')
+const privWatchEventListener = Symbol('privWatchEventListener')
+const privWebviewAttached = Symbol('privWebviewAttached')
+
 class WebView extends React.Component {
   /* **************************************************************************/
   // Class
   /* **************************************************************************/
   static propTypes = {
-    onWebContentsAttached: PropTypes.func,
     ...WEBVIEW_PROPS,
     ...REACT_WEBVIEW_EVENT_PROPS
   }
@@ -51,8 +59,9 @@ class WebView extends React.Component {
       stylesheetAttached = true
     }
 
-    this.ipcPromises = new Map()
-    this.watchEventListeners = new Set()
+    this[privIpcPromises] = new Map()
+    this[privWatchEventListener] = new Set()
+    this[privWebviewAttached] = false
 
     this.exposeWebviewMethods()
   }
@@ -70,12 +79,11 @@ class WebView extends React.Component {
     // Bind webview events
     this.updateEventListeners()
 
-    // Create an artificial onWebContentsAttached event
-    electron.remote.getCurrentWebContents().on('did-attach-webview', this.handleWebContentsAttached)
+    WebViewGroupEventDispatcher.on('window-focus', this.handleWindowFocused)
   }
 
   componentWillUnmount () {
-    electron.remote.getCurrentWebContents().removeListener('did-attach-webview', this.handleWebContentsAttached)
+    WebViewGroupEventDispatcher.removeListener('window-focus', this.handleWindowFocused)
   }
 
   componentWillReceiveProps (nextProps) {
@@ -99,18 +107,32 @@ class WebView extends React.Component {
   }
 
   /**
-  * Handles a webcontents attaching to the dom
+  * Handles the window coming into focus
   * @param evt: the event that fired
-  * @param wc: the webcontents that did attach
   */
-  handleWebContentsAttached = (evt, wc) => {
+  handleWindowFocused = (evt) => {
     const node = this.getWebviewNode()
-    const nwc = node.getWebContents()
-    if (nwc && wc.id === nwc.id) {
-      if (this.props.onWebContentsAttached) {
-        this.props.onWebContentsAttached(wc)
+    if (document.activeElement === node) {
+      // There's an issue where the mouse hover state is incorrectly reported to the child window.
+      // It's not 100% reproducable but is more reproducable when all these are true:,
+      // gmail, darwin, multiple extensions, switching via keyboard, switching from another desktop
+      //
+      // Bluring the element, focusing on another and focusing back on next tick seems to fix it
+      // but has the nasty side-effect of causing webviews with a focused iframe to maintain pragmatic
+      // focus but actually not hold focus
+      //
+      // An alternative fix for this is to force a repaint. You can either do this by visibility=hidden/visible
+      // or by changing the physical dimensions on the element. By changing by 0.1px it causes a reflow and repaint
+      // of the dom but the user should not see the size change because chromium will round down (Unless you have a
+      // monitor with 10x pixel density).
+      const sizeBackFn = () => {
+        node.removeEventListener('resize', sizeBackFn)
+        setTimeout(() => {
+          node.style.top = '0px'
+        })
       }
-      electron.remote.getCurrentWebContents().removeListener('did-attach-webview', this.handleWebContentsAttached)
+      node.addEventListener('resize', sizeBackFn)
+      node.style.top = '0.1px'
     }
   }
 
@@ -176,12 +198,13 @@ class WebView extends React.Component {
   updateEventListeners = () => {
     const node = this.getWebviewNode()
     WEBVIEW_EVENTS.forEach((domName) => {
-      const isListening = this.watchEventListeners.has(domName)
+      const isListening = this[privWatchEventListener].has(domName)
       const hasReactListener = !!this.props[camelCase(domName)] || INTERCEPTED_WEBVIEW_EVENTS.has(domName)
 
       if (isListening !== hasReactListener) {
         if (isListening && !hasReactListener) {
           node.removeEventListener(domName, this.handleWebviewEvent)
+          this[privWatchEventListener].delete(domName)
         } else if (!isListening && hasReactListener) {
           if (domName === 'will-navigate') {
             /**
@@ -195,6 +218,7 @@ class WebView extends React.Component {
             ].join(' '), this.getWebviewNode())
           }
           node.addEventListener(domName, this.handleWebviewEvent)
+          this[privWatchEventListener].add(domName)
         }
       }
     })
@@ -242,6 +266,9 @@ class WebView extends React.Component {
         node.focus()
       }
       if (this.props[reactEventName]) { this.props[reactEventName](evt) }
+    } else if (evt.type === 'did-attach') {
+      this[privWebviewAttached] = true
+      if (this.props[reactEventName]) { this.props[reactEventName](evt) }
     } else {
       if (this.props[reactEventName]) { this.props[reactEventName](evt) }
     }
@@ -256,11 +283,11 @@ class WebView extends React.Component {
     if (typeof (evt.channel.type) !== 'string') { return false }
 
     if (evt.channel.type.indexOf(SEND_RESPOND_PREFIX) === 0) {
-      if (this.ipcPromises.has(evt.channel.type)) {
-        const responder = this.ipcPromises.get(evt.channel.type)
+      if (this[privIpcPromises].has(evt.channel.type)) {
+        const responder = this[privIpcPromises].get(evt.channel.type)
         clearTimeout(responder.timeout)
         responder.resolve(evt.channel.data)
-        this.ipcPromises.delete(evt.channel.type)
+        this[privIpcPromises].delete(evt.channel.type)
       }
       return true
     } else {
@@ -332,7 +359,7 @@ class WebView extends React.Component {
       // Run the capture
       setTimeout(() => {
         try {
-          node.capturePage(arg1, (img) => {
+          node.getWebContents().capturePage(arg1, (img) => {
             clearTimeout(timeoutWarn)
             clearTimeout(timeout)
             setTimeout(() => {
@@ -397,16 +424,16 @@ class WebView extends React.Component {
       const id = Math.random().toString()
       const respondName = SEND_RESPOND_PREFIX + ':' + sendName + ':' + id
       const rejectTimeout = setTimeout(() => {
-        this.ipcPromises.delete(respondName)
+        this[privIpcPromises].delete(respondName)
         reject(new Error('Request Timeout'))
       }, timeout)
-      this.ipcPromises.set(respondName, { resolve: resolve, timeout: rejectTimeout })
-      this.getWebviewNode().send(sendName, Object.assign({}, obj, { __respond__: respondName }))
+      this[privIpcPromises].set(respondName, { resolve: resolve, timeout: rejectTimeout })
+      this.getWebviewNode().send(sendName, { ...obj, __respond__: respondName })
     })
   }
 
   /* **************************************************************************/
-  // Rendering
+  // Public
   /* **************************************************************************/
 
   /**
@@ -415,6 +442,17 @@ class WebView extends React.Component {
   getWebviewNode = () => {
     return ReactDOM.findDOMNode(this).getElementsByTagName('webview')[0]
   }
+
+  /**
+  * @return true if the webview is attached
+  */
+  isWebviewAttached = () => {
+    return this[privWebviewAttached]
+  }
+
+  /* **************************************************************************/
+  // Rendering
+  /* **************************************************************************/
 
   shouldComponentUpdate () {
     // we never want to re-render. We will handle this manually in componentWillReceiveProps

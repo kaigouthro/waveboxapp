@@ -6,10 +6,11 @@ import classNames from 'classnames'
 const styles = {
   mailboxContainer: {
     display: 'block',
-    marginTop: 10,
-    marginBottom: 10,
+    marginTop: 5,
+    marginBottom: 5,
     position: 'relative',
-    textAlign: 'center'
+    textAlign: 'center',
+    WebkitAppRegion: 'no-drag' // on win32 when the titlebar is hidden, drag regions gobble hover events and cause popups to close early
   }
 }
 

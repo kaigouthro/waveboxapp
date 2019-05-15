@@ -14,6 +14,8 @@ import SearchIcon from '@material-ui/icons/Search'
 const SEARCH_HEIGHT = 48
 const styles = {
   container: {
+    display: 'flex',
+    alignItems: 'center',
     position: 'absolute',
     bottom: -SEARCH_HEIGHT - 5,
     left: 0,
@@ -147,6 +149,24 @@ class ServiceSearch extends React.Component {
     }
   }
 
+  /**
+  * Handles the input bluring
+  * @param evt: the event that fired
+  */
+  handleBlur = (evt) => {
+    if (window.location.hash.indexOf('keyboardtarget?search=true') !== -1) {
+      window.location.hash = '/'
+    }
+  }
+
+  /**
+  * Handles the input focusing
+  * @param evt: the event that fired
+  */
+  handleFocus = (evt) => {
+    window.location.hash = '/keyboardtarget?search=true'
+  }
+
   /* **************************************************************************/
   // IPC Events
   /* **************************************************************************/
@@ -170,6 +190,8 @@ class ServiceSearch extends React.Component {
       if (this.state.isSearching !== prevState.isSearching) {
         if (this.state.isSearching) {
           this.inputRef.focus()
+        } else {
+          this.inputRef.blur()
         }
       }
     }
@@ -194,6 +216,8 @@ class ServiceSearch extends React.Component {
           placeholder='Search'
           className={classes.input}
           value={searchTerm}
+          onBlur={this.handleBlur}
+          onFocus={this.handleFocus}
           onChange={this.handleChange}
           onKeyDown={this.handleKeyPress} />
         <IconButton tabIndex={-1} onClick={this.handleFindNext}>

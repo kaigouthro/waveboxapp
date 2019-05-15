@@ -6,13 +6,13 @@ import Spinner from 'wbui/Activity/Spinner'
 import { crextensionStore, crextensionActions } from 'stores/crextension'
 import { userStore } from 'stores/user'
 import { settingsStore } from 'stores/settings'
-import electron from 'electron'
 import { withStyles } from '@material-ui/core/styles'
 import classNames from 'classnames'
 import grey from '@material-ui/core/colors/grey'
 import lightBlue from '@material-ui/core/colors/lightBlue'
 import blue from '@material-ui/core/colors/blue'
 import red from '@material-ui/core/colors/red'
+import WBRPCRenderer from 'shared/WBRPCRenderer'
 
 const styles = {
   // Layout
@@ -88,7 +88,7 @@ const styles = {
     color: blue[600],
     cursor: 'pointer'
   },
-  linkSeperator: {
+  linkSeparator: {
     fontSize: '12px',
     color: grey[600]
   },
@@ -228,14 +228,14 @@ class ExtensionListItem extends React.Component {
   * Opens the website
   */
   handleOpenWebsite = () => {
-    electron.remote.shell.openExternal(this.state.websiteUrl)
+    WBRPCRenderer.wavebox.openExternal(this.state.websiteUrl)
   }
 
   /**
   * Opens the license
   */
   handleOpenLicense = () => {
-    electron.remote.shell.openExternal(this.state.licenseUrl)
+    WBRPCRenderer.wavebox.openExternal(this.state.licenseUrl)
   }
 
   /**
@@ -457,7 +457,7 @@ class ExtensionListItem extends React.Component {
                 {websiteUrl ? (
                   <span className={classes.link} onClick={this.handleOpenWebsite}>Website</span>
                 ) : undefined}
-                {websiteUrl && licenseUrl ? (<span className={classes.linkSeperator}> | </span>) : undefined}
+                {websiteUrl && licenseUrl ? (<span className={classes.linkSeparator}> | </span>) : undefined}
                 {licenseUrl ? (
                   <span className={classes.link} onClick={this.handleOpenLicense}>License</span>
                 ) : undefined}

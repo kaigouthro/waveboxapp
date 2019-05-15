@@ -51,9 +51,9 @@ const styles = {
   // Icons
   faIcon: {
     color: 'rgba(255, 255, 255, 0.7)',
-    width: 20,
-    height: 20,
-    fontSize: 20
+    width: '20px !important',
+    height: '20px !important',
+    fontSize: '20px !important'
   },
   spacer: {
     flex: 1
@@ -192,6 +192,7 @@ class AppSceneToolbar extends React.Component {
           anchorEl={dockMenuAnchor}
           MenuListProps={{ dense: true }}
           disableEnforceFocus
+          disableAutoFocusItem
           onClose={() => this.setState({ dockMenuAnchor: null })}>
           <MenuItem onClick={() => {
             this.setState({ dockMenuAnchor: null })
@@ -252,6 +253,8 @@ class AppSceneToolbar extends React.Component {
           )}
         </AppSceneToolbarButton>
         <Menu
+          disableAutoFocusItem
+          disableEnforceFocus
           anchorEl={notificationMenuAnchor}
           open={!!notificationMenuAnchor}
           MenuListProps={{ dense: true }}

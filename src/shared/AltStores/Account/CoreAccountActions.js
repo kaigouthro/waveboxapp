@@ -117,6 +117,20 @@ class CoreAccountActions extends RemoteActions {
     }
   }
 
+  /**
+  * Cleans the window open rules on a mailbox
+  * @param id: the id of the mailbox
+  * @param customProviderIds: a list of custom provider ids
+  */
+  cleanMailboxWindowOpenRules (...args) {
+    if (process.type === 'browser') {
+      const [id, customProviderIds] = args
+      return { id, customProviderIds }
+    } else if (process.type === 'renderer') {
+      return this.remoteDispatch('cleanMailboxWindowOpenRules', args)
+    }
+  }
+
   /* **************************************************************************/
   // Auth
   /* **************************************************************************/
@@ -436,6 +450,17 @@ class CoreAccountActions extends RemoteActions {
     }
   }
 
+  /**
+  * Indicates the container service apis have been updated
+  */
+  containerSAPIUpdated (...args) {
+    if (process.type === 'browser') {
+      return { }
+    } else if (process.type === 'renderer') {
+      return this.remoteDispatch('containerSAPIUpdated', args)
+    }
+  }
+
   /* **************************************************************************/
   // Sleeping
   /* **************************************************************************/
@@ -443,11 +468,12 @@ class CoreAccountActions extends RemoteActions {
   /**
   * Sleeps a service
   * @param id: the id of the service
+  * @param ignoreChildrenCheck=false: set to true to ignore checking for child windows
   */
   sleepService (...args) {
     if (process.type === 'browser') {
-      const [id] = args
-      return { id }
+      const [id, ignoreChildrenCheck = false] = args
+      return { id, ignoreChildrenCheck }
     } else if (process.type === 'renderer') {
       return this.remoteDispatch('sleepService', args)
     }
@@ -456,11 +482,12 @@ class CoreAccountActions extends RemoteActions {
   /**
   * Sleeps all services in a mailbox
   * @param id: the id of the mailbox
+  * * @param ignoreChildrenCheck=false: set to true to ignore checking for child windows
   */
   sleepAllServicesInMailbox (...args) {
     if (process.type === 'browser') {
-      const [id] = args
-      return { id }
+      const [id, ignoreChildrenCheck = false] = args
+      return { id, ignoreChildrenCheck }
     } else if (process.type === 'renderer') {
       return this.remoteDispatch('sleepAllServicesInMailbox', args)
     }
@@ -610,6 +637,28 @@ class CoreAccountActions extends RemoteActions {
     }
   }
 
+  /**
+  * Quick switiches to the next service
+  */
+  quickSwitchNextService (...args) {
+    if (process.type === 'browser') {
+      return { }
+    } else if (process.type === 'renderer') {
+      return this.remoteDispatch('quickSwitchNextService', args)
+    }
+  }
+
+  /**
+  * Quick switiches to the prev service
+  */
+  quickSwitchPrevService (...args) {
+    if (process.type === 'browser') {
+      return { }
+    } else if (process.type === 'renderer') {
+      return this.remoteDispatch('quickSwitchPrevService', args)
+    }
+  }
+
   /* **************************************************************************/
   // Mailbox auth teardown
   /* **************************************************************************/
@@ -734,6 +783,47 @@ class CoreAccountActions extends RemoteActions {
       return { serviceId, id }
     } else if (process.type === 'renderer') {
       return this.remoteDispatch('removeFromReadingQueue', args)
+    }
+  }
+
+  /* **************************************************************************/
+  // Google Inbox
+  /* **************************************************************************/
+
+  /**
+  * Converts a google inbox account to gmail
+  * @param serviceId: the id of the service
+  * @param duplicateFirst: true to duplicate and then work on the duplicate
+  */
+  convertGoogleInboxToGmail (...args) {
+    if (process.type === 'browser') {
+      const [serviceId, duplicateFirst] = args
+      return { serviceId, duplicateFirst }
+    } else if (process.type === 'renderer') {
+      return this.remoteDispatch('convertGoogleInboxToGmail', args)
+    }
+  }
+
+  /* **************************************************************************/
+  // Sync
+  /* **************************************************************************/
+
+  /**
+  * @Thomas101 this is only triggered off from the mailboxes window, but uses
+  * the "userRequestsServiceSync" call. That then decides if it should call this.
+  * Once all sync has been moved across to the new integrated this fn call can be
+  * changed to be the single point of trigger as sync happens on the main thread
+  *
+  *
+  * Indicates that a user want's a service to sync
+  * @param serviceId: the id of the service
+  */
+  userRequestsIntegratedServiceSync (...args) {
+    if (process.type === 'browser') {
+      const [serviceId] = args
+      return { serviceId }
+    } else if (process.type === 'renderer') {
+      return this.remoteDispatch('userRequestsIntegratedServiceSync', args)
     }
   }
 }

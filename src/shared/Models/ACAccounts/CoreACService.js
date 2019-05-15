@@ -84,6 +84,7 @@ class CoreACService extends CoreACModel {
     return `persist:${basePartitionId}`
   }
   get type () { return this.constructor.type }
+  get iengineAlias () { return this.constructor.type }
   get sandboxFromMailbox () { return this._value_('sandboxFromMailbox', false) }
 
   /* **************************************************************************/
@@ -176,6 +177,7 @@ class CoreACService extends CoreACModel {
   get url () { SubclassNotImplementedError('CoreACService.url') }
   get reloadBehaviour () { return RELOAD_BEHAVIOURS.RESET_URL }
   get restoreLastUrl () { return this._value_('restoreLastUrl', false) }
+  get preventLowPowerMode () { return this._value_('preventLowPowerMode', false) }
 
   /**
   * Gets the url being provided the service data if there is any customization to do
@@ -201,7 +203,7 @@ class CoreACService extends CoreACModel {
   get hasServiceAvatarURL () { return !!this.serviceAvatarURL }
   get serviceLocalAvatarId () { return this._value_('serviceLocalAvatarId') }
   get hasServiceLocalAvatarId () { return !!this.serviceLocalAvatarId }
-  get serviceAvatarCharacterDisplay () { return undefined }
+  get serviceAvatarCharacterDisplay () { return this._value_('serviceAvatarCharacterDisplay', undefined) }
 
   /* **************************************************************************/
   // Properties: Badge & Unread
@@ -234,6 +236,24 @@ class CoreACService extends CoreACModel {
     })
   }
 
+  /**
+  * Gets a reading queue item with a given id
+  * @param id: the id of the reading queue item
+  * @return the item or undefined
+  */
+  getReadingQueueItemWithId (id) {
+    return this.readingQueue.find((q) => q.id === id)
+  }
+
+  /**
+  * Gets a bookmark with a given id
+  * @param id: the id of the bookmark
+  * @return the bookmark or undefined
+  */
+  getBookmarkWithId (id) {
+    return this.bookmarks.find((b) => b.id === id)
+  }
+
   /* **************************************************************************/
   // Properties : Custom injectables
   /* **************************************************************************/
@@ -248,6 +268,28 @@ class CoreACService extends CoreACModel {
   /* **************************************************************************/
 
   get adaptors () { return [] }
+
+  /* **************************************************************************/
+  // Properties: Commands
+  /* **************************************************************************/
+
+  get commands () { return [] }
+
+  /**
+  * Gets a command for a given string
+  * @param commandString: the string to process
+  * @return the relevant command or undefined
+  */
+  getCommandForString (commandString) {
+    if (typeof (commandString) !== 'string') { return undefined }
+
+    const command = commandString.trim().split(' ')[0]
+    const modifier = command[0]
+    const keyword = command.substr(1)
+    return this.commands.find((cmd) => {
+      return cmd.modifier === modifier && cmd.keyword === keyword
+    })
+  }
 
   /* **************************************************************************/
   // Behaviour

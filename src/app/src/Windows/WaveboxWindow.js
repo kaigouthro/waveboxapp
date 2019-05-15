@@ -1,4 +1,4 @@
-import { BrowserWindow, webContents, screen, ipcMain } from 'electron'
+import electron from 'electron'
 import EventEmitter from 'events'
 import { evtMain } from 'AppEvents'
 import { settingsStore } from 'stores/settings'
@@ -7,23 +7,22 @@ import WaveboxWindowManager from './WaveboxWindowManager'
 import {
   WB_WINDOW_FIND_START,
   WB_WINDOW_FIND_NEXT,
-  WB_WINDOW_DARWIN_SCROLL_TOUCH_BEGIN,
-  WB_WINDOW_DARWIN_SCROLL_TOUCH_END,
   WB_WINDOW_FOCUS,
   WB_WINDOW_BLUR,
-  WB_WINDOW_MIN_MAX_DBL_CLICK
+  WB_WINDOW_MIN_MAX_DBL_CLICK,
+  WB_WINDOW_RESET_VISUAL_ZOOM
 } from 'shared/ipcEvents'
 import Resolver from 'Runtime/Resolver'
 import WINDOW_TYPES from './WindowTypes'
-import Platform from 'shared/Platform'
 import ElectronWebContentsWillNavigateShim from 'ElectronTools/ElectronWebContentsWillNavigateShim'
 
+const { BrowserWindow, webContents, ipcMain } = electron
 const privWindow = Symbol('privWindow')
 const privBrowserWindowId = Symbol('privBrowserWindowId')
 const privLocationSaver = Symbol('privLocationSaver')
 const privLastTimeInFocus = Symbol('privLastTimeInFocus')
-const privMojaveCheckboxFix = Symbol('privMojaveCheckboxFix')
 const privMinMaxLast = Symbol('privMinMaxLast')
+const privTouchBarProvider = Symbol('privTouchBarProvider')
 
 const waveboxWindowManager = new WaveboxWindowManager()
 
@@ -73,32 +72,10 @@ class WaveboxWindow extends EventEmitter {
     this[privBrowserWindowId] = null
     this[privLastTimeInFocus] = 0
     this[privLocationSaver] = new WaveboxWindowLocationSaver(saverTag)
-    this[privMojaveCheckboxFix] = settingsStore.getState().launched.app.darwinMojaveCheckboxFix
     this[privMinMaxLast] = null
 
     // Events
     ipcMain.on(WB_WINDOW_MIN_MAX_DBL_CLICK, this._handleMinMaxDoubleClickWindow)
-
-    // Mojave fix for issues/817
-    // This fix will need to remain in for a version after chromium has been updated as anyone
-    // who has had the fix applied will still have the webcontents at 0.001 zoom.
-    // See @Thomas101 for more info
-    if (process.platform === 'darwin') {
-      this.on('tab-created', (evt, tabId) => {
-        const wc = webContents.fromId(tabId)
-        if (!wc || wc.isDestroyed()) { return }
-        wc.on('did-start-navigation', (evt, url, isInPlace, isMainFrame) => {
-          if (isMainFrame) {
-            evt.sender.getZoomFactor((factor) => {
-              const corrected = this._getDarwinMojaveCorrectedZoomLevel(factor, this[privMojaveCheckboxFix])
-              if (corrected !== factor) {
-                evt.sender.setZoomFactor(corrected)
-              }
-            })
-          }
-        })
-      })
-    }
   }
 
   /**
@@ -161,6 +138,7 @@ class WaveboxWindow extends EventEmitter {
   * @return this
   */
   create (url, browserWindowPreferences = {}) {
+    const settingsState = settingsStore.getState()
     const savedLocation = this.locationSaver.getSavedScreenLocation()
     const fullBrowserWindowPreferences = {
       ...this.defaultBrowserWindowPreferences(),
@@ -175,7 +153,7 @@ class WaveboxWindow extends EventEmitter {
     // Create the window & prep for lifecycle
     this[privWindow] = new BrowserWindow(fullBrowserWindowPreferences)
     this[privBrowserWindowId] = this.window.id
-    this[settingsStore.getState().ui.showAppMenu ? 'showAppMenu' : 'hideAppMenu']()
+    this[settingsState.ui.showAppMenu ? 'showAppMenu' : 'hideAppMenu']()
 
     // Bind window event listeners
     this.window.on('close', (evt) => this.emit('close', evt))
@@ -183,6 +161,11 @@ class WaveboxWindow extends EventEmitter {
     this.window.on('focus', this._handleWindowFocused)
     this.window.on('blur', this._handleWindowBlurred)
     this.bindMouseNavigation()
+
+    if (settingsState.launched.app.forceWindowPaintOnRestore) {
+      this.window.on('restore', this._forceRestoreRepaint)
+      this.window.on('show', this._forceRestoreRepaint)
+    }
 
     // Restore window position
     if (fullBrowserWindowPreferences.show) {
@@ -225,6 +208,11 @@ class WaveboxWindow extends EventEmitter {
       evtMain.emit(evtMain.WB_WINDOW_CREATED, {}, this.browserWindowId)
     })
 
+    // Touchbar
+    if (process.platform === 'darwin' && settingsState.launched.app.touchBarSupportEnabled) {
+      this[privTouchBarProvider] = this.createTouchbarProvider()
+    }
+
     return this
   }
 
@@ -247,7 +235,7 @@ class WaveboxWindow extends EventEmitter {
       // Bound the window to our current screen to ensure it's not off-screen
       if (!this[privWindow].isMaximized() && !this[privWindow].isFullScreen()) {
         const windowBounds = this[privWindow].getBounds()
-        const workArea = (screen.getDisplayMatching(windowBounds) || screen.getPrimaryDisplay()).workArea
+        const workArea = (electron.screen.getDisplayMatching(windowBounds) || electron.screen.getPrimaryDisplay()).workArea
         // On macOS if the opening window is in fullscreen mode we can end up with Y=0 for the workarea. We
         // can also end up with screen.getMenuBarHeight()=0 as the menu bar is hidden. This can result in
         // the bounding failing and the window titlebar being placed under the menubar which means the
@@ -283,6 +271,7 @@ class WaveboxWindow extends EventEmitter {
   */
   destroy (evt) {
     settingsStore.unlisten(this.updateWindowMenubar)
+    ipcMain.removeListener(WB_WINDOW_MIN_MAX_DBL_CLICK, this._handleMinMaxDoubleClickWindow)
     if (this.window) {
       this.locationSaver.unregister(this.window)
       if (!this.window.isDestroyed()) {
@@ -297,6 +286,15 @@ class WaveboxWindow extends EventEmitter {
     setTimeout(() => {
       evtMain.emit(evtMain.WB_WINDOW_DESTROYED, {}, this.browserWindowId)
     })
+
+    // Touchbar
+    if (this[privTouchBarProvider]) {
+      if (this[privTouchBarProvider].destroy) {
+        this[privTouchBarProvider].destroy()
+      }
+      this[privTouchBarProvider] = undefined
+    }
+
     this.emit('closed', evt)
   }
 
@@ -316,6 +314,68 @@ class WaveboxWindow extends EventEmitter {
     return false
   }
 
+  /**
+  * Hook that gets called before the app fully quits from a keyboard shortcut
+  * Overwrite this for custom behaviours
+  * @param accelerator: the accelerator that was called
+  * @return false to allow full quit, true to prevent the behaviour
+  */
+  onBeforeFullQuit (accelerator) {
+    return false
+  }
+
+  /**
+  * Hook that gets called to determine where to send window open requests to
+  * @return a webContents if supported, falsey if not
+  */
+  userLinkOpenRequestResponder () {
+    return null
+  }
+
+  /**
+  * Hook that gets called to init the touchbar provider
+  * @return an object that can be used to run the touchbar or undefined
+  */
+  createTouchbarProvider () { return undefined }
+
+  /* ****************************************************************************/
+  // Mouse Navigation
+  /* ****************************************************************************/
+
+  /**
+  * Shows the basic addressbar in the window
+  */
+  showNativeUI () {
+    // Setup the addressbar
+    if (electron.TextField) {
+      const { View, BoxLayout, TextField } = electron
+      const contentView = new View()
+      const contentLayout = new BoxLayout('vertical')
+      const addressBar = new TextField()
+      const mainView = this.window.getContentView()
+      addressBar.setReadOnly(true)
+      contentView.setLayoutManager(contentLayout)
+      contentView.addChildView(addressBar)
+      contentView.addChildView(mainView)
+      contentLayout.setFlexForView(mainView, 1)
+      this.window.setContentView(contentView)
+
+      addressBar.setText(this.window.webContents.getURL())
+      addressBar.selectStartRange()
+      this.window.webContents.on('did-navigate', (evt, url) => {
+        addressBar.setText(url)
+        addressBar.selectStartRange()
+      })
+      this.window.webContents.on('did-navigate-in-page', (evt, url, isMainFrame) => {
+        if (isMainFrame) {
+          addressBar.setText(url)
+          addressBar.selectStartRange()
+        }
+      })
+      this.window.setMenuBarVisibility(false)
+    }
+  }
+
   /* ****************************************************************************/
   // Mouse Navigation
   /* ****************************************************************************/
@@ -325,14 +385,7 @@ class WaveboxWindow extends EventEmitter {
   * Darwin is handled in the rendering thread
   */
   bindMouseNavigation () {
-    if (process.platform === 'darwin') {
-      this.window.on('scroll-touch-begin', () => {
-        this.window.webContents.send(WB_WINDOW_DARWIN_SCROLL_TOUCH_BEGIN, {})
-      })
-      this.window.on('scroll-touch-end', () => {
-        this.window.webContents.send(WB_WINDOW_DARWIN_SCROLL_TOUCH_END, {})
-      })
-    } else if (process.platform === 'win32') {
+    if (process.platform === 'win32') {
       this.window.on('app-command', (evt, cmd) => {
         switch (cmd) {
           case 'browser-backward': this.navigateBack(); break
@@ -392,6 +445,27 @@ class WaveboxWindow extends EventEmitter {
     }
   }
 
+  /**
+  * Forces a repaint on restore
+  */
+  _forceRestoreRepaint = () => {
+    clearTimeout(this.__forceRestoreThrottle || null)
+    this.__forceRestoreThrottle = setTimeout(() => {
+      if (!this.window || this.window.isDestroyed()) { return }
+
+      const [w, h] = this.window.getSize()
+      this.window.setSize(w, h - 0, false)
+      setTimeout(() => {
+        if (!this.window || this.window.isDestroyed()) { return }
+        this.window.setSize(w, h, false)
+        setTimeout(() => {
+          if (!this.window || this.window.isDestroyed()) { return }
+          this.window.webContents.invalidate()
+        }, 1)
+      }, 1)
+    }, 100)
+  }
+
   /* ****************************************************************************/
   // Webcontents handlers
   /* ****************************************************************************/
@@ -444,6 +518,35 @@ class WaveboxWindow extends EventEmitter {
     const wc = webContents.fromId(wcId)
     if (!wc) { return }
     wc.reload()
+    return this
+  }
+
+  /**
+  * Stops the current webview
+  * @return this
+  */
+  stop () {
+    const wcId = this.focusedTabId()
+    if (!wcId) { return }
+    const wc = webContents.fromId(wcId)
+    if (!wc) { return }
+    wc.stop()
+    return this
+  }
+
+  /**
+  * Stops the webcontents if loading, otherwise reloads
+  */
+  reloadOrStop () {
+    const wcId = this.focusedTabId()
+    if (!wcId) { return }
+    const wc = webContents.fromId(wcId)
+    if (!wc) { return }
+    if (wc.isLoading()) {
+      wc.stop()
+    } else {
+      wc.reload()
+    }
     return this
   }
 
@@ -639,7 +742,7 @@ class WaveboxWindow extends EventEmitter {
     const wc = webContents.fromId(webContentsId)
     if (!wc || wc.isDestroyed()) { return this }
     wc.getZoomFactor((factor) => {
-      wc.setZoomFactor(this._getDarwinMojaveCorrectedZoomLevel(factor + 0.1, this[privMojaveCheckboxFix]))
+      wc.setZoomFactor(factor + 0.1)
     })
     return this
   }
@@ -654,7 +757,7 @@ class WaveboxWindow extends EventEmitter {
     const wc = webContents.fromId(webContentsId)
     if (!wc || wc.isDestroyed()) { return this }
     wc.getZoomFactor((factor) => {
-      wc.setZoomFactor(this._getDarwinMojaveCorrectedZoomLevel(factor - 0.1, this[privMojaveCheckboxFix]))
+      wc.setZoomFactor(factor - 0.1)
     })
     return this
   }
@@ -668,28 +771,9 @@ class WaveboxWindow extends EventEmitter {
     if (!webContentsId) { return this }
     const wc = webContents.fromId(webContentsId)
     if (!wc || wc.isDestroyed()) { return this }
-    wc.setZoomFactor(this._getDarwinMojaveCorrectedZoomLevel(1.0, this[privMojaveCheckboxFix]))
+    wc.setZoomFactor(1.0)
+    wc.send(WB_WINDOW_RESET_VISUAL_ZOOM)
     return this
-  }
-
-  /**
-  * Sanitizes the zoom level for macOS mojave to work around issues/817
-  * @param zoom: the zoom we want to apply
-  * @param enabled: true if the fix should be applied
-  * @return the zoom we should apply
-  */
-  _getDarwinMojaveCorrectedZoomLevel (zoom, enabled) {
-    // Make sure we sanitize the zoom correctly - as upgrades will lose the sanitized value
-    const sanitizedZoom = Math.round(zoom * 10) / 10
-    if (Platform.isDarwinMojave() && enabled) {
-      if (sanitizedZoom === 1.0) {
-        return 1.001
-      } else {
-        return sanitizedZoom
-      }
-    } else {
-      return sanitizedZoom
-    }
   }
 
   /* ****************************************************************************/

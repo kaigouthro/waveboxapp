@@ -51,14 +51,25 @@ class ACClassicContainer extends Model {
   get urlSubdomainName () { return this._value_('urlSubdomainName', 'subdomain') }
   get urlSubdomainHint () { return this._value_('urlSubdomainHint', '') }
   get hasUrlSubdomain () { return this._value_('hasUrlSubdomain', false) }
+  get urlSubdomainCanBeFullUrl () { return this._value_('urlSubdomainCanBeFullUrl', false) }
   get restoreLastUrlDefault () { return this._classicServiceValue_('restoreLastUrlDefault', false) }
+  get urlCanBeOverwritten () { return this._value_('urlCanBeOverwritten', false) }
 
   /**
-  * @param subdomain: the subdomain to replace with
-  * @return the url with the subdomain replaced
+  * Gets a url with user config
+  * @param overwrite: the overwrite value the user has provided
+  * @param subdomain: the subdomain to replace
+  * @return the url resolved with the user config
   */
-  getUrlWithSubdomain (subdomain) {
-    if (this.hasUrlSubdomain) {
+  getUrlWithConfig (overwrite, subdomain) {
+    if (this.urlCanBeOverwritten) {
+      return overwrite || this.url
+    } else if (this.hasUrlSubdomain) {
+      if (this.urlSubdomainCanBeFullUrl) {
+        if (subdomain.startsWith('https://') || subdomain.startsWith('http://')) {
+          return subdomain
+        }
+      }
       return (this.url || '').replace(/{{subdomain}}/g, subdomain)
     } else {
       return this.url
@@ -70,6 +81,12 @@ class ACClassicContainer extends Model {
   /* **************************************************************************/
 
   get adaptors () { return this._classicServiceValue_('adaptors', []) }
+
+  /* **************************************************************************/
+  // Properties: Commands
+  /* **************************************************************************/
+
+  get commands () { return this._classicServiceValue_('commands', []) }
 
   /* **************************************************************************/
   // Properties: Behaviour

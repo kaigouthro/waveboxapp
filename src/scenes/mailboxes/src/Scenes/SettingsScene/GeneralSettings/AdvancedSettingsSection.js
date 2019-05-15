@@ -2,6 +2,7 @@ import PropTypes from 'prop-types'
 import React from 'react'
 import { ipcRenderer } from 'electron'
 import { settingsActions } from 'stores/settings'
+import { userStore } from 'stores/user'
 import CustomCodeEditingDialog from 'Components/CustomCodeEditingDialog'
 import DistributionConfig from 'Runtime/DistributionConfig'
 import { AppSettings } from 'shared/Models/Settings'
@@ -16,7 +17,6 @@ import SettingsListTypography from 'wbui/SettingsListTypography'
 import modelCompare from 'wbui/react-addons-model-compare'
 import partialShallowCompare from 'wbui/react-addons-partial-shallow-compare'
 import { WB_OPEN_CERTIFICATES_FOLDER } from 'shared/ipcEvents'
-import Platform from 'shared/Platform'
 import SettingsListItemSelectInline from 'wbui/SettingsListItemSelectInline'
 
 const styles = {}
@@ -31,7 +31,8 @@ class AdvancedSettingsSection extends React.Component {
     showRestart: PropTypes.func.isRequired,
     app: PropTypes.object.isRequired,
     language: PropTypes.object.isRequired,
-    ui: PropTypes.object.isRequired
+    ui: PropTypes.object.isRequired,
+    os: PropTypes.object.isRequired
   }
 
   /* **************************************************************************/
@@ -57,11 +58,12 @@ class AdvancedSettingsSection extends React.Component {
         'disableSmoothScrolling',
         'enableAutofillService',
         'enableWindowOpeningEngine',
-        'enableMouseNavigationDarwin',
         'polyfillUserAgents',
-        'darwinMojaveCheckboxFix',
         'concurrentServiceLoadLimit',
-        'searchProvider'
+        'searchProvider',
+        'forceWindowPaintOnRestore',
+        'showArtificiallyPersistCookies',
+        'touchBarSupportEnabled'
       ]) ||
       modelCompare(this.props.language, nextProps.language, [
         'inProcessSpellchecking'
@@ -69,6 +71,10 @@ class AdvancedSettingsSection extends React.Component {
       modelCompare(this.props.ui, nextProps.ui, [
         'customMainCSS',
         'showCtxMenuAdvancedLinkOptions'
+      ]) ||
+      modelCompare(this.props.os, nextProps.os, [
+        'rawUseAsyncDownloadHandler',
+        'rawNotificationsMutedWhenSuspended'
       ]) ||
       partialShallowCompare(
         { showRestart: this.props.showRestart },
@@ -85,6 +91,7 @@ class AdvancedSettingsSection extends React.Component {
       app,
       language,
       ui,
+      os,
       classes,
       ...passProps
     } = this.props
@@ -117,7 +124,7 @@ class AdvancedSettingsSection extends React.Component {
           checked={app.isolateMailboxProcesses} />
         {AppSettings.SUPPORTS_MIXED_SANDBOX_MODE ? (
           <SettingsListItemSwitch
-            label='Sandboxing (Requires Restart)'
+            label='Process Sandboxing (Requires Restart)'
             onChange={(evt, toggled) => {
               showRestart()
               settingsActions.sub.app.setEnableMixedSandboxMode(toggled)
@@ -145,15 +152,6 @@ class AdvancedSettingsSection extends React.Component {
             settingsActions.sub.app.disableSmoothScrolling(!toggled)
           }}
           checked={!app.disableSmoothScrolling} />
-        {process.platform === 'darwin' ? (
-          <SettingsListItemSwitch
-            label='Touchpad swipe Navigation (Requires Restart)'
-            onChange={(evt, toggled) => {
-              showRestart()
-              settingsActions.sub.app.setEnableMouseNavigationDarwin(toggled)
-            }}
-            checked={app.enableMouseNavigationDarwin} />
-        ) : undefined}
         {DistributionConfig.isSnapInstall ? undefined : (
           <SettingsListItemSwitch
             label='Autofill passwords on right click'
@@ -177,6 +175,13 @@ class AdvancedSettingsSection extends React.Component {
             <SettingsListTypography type='warning' icon={<WarningIcon />}>
               All links will open in your default browser. You may experience
               broken links and blank windows with this setting
+              <p>
+                Other link tools (e.g. changeable behaviour with Shift+Click) are
+                not available with this option disabled
+              </p>
+              <p>
+                It's highly recommended keeping this setting enabled
+              </p>
             </SettingsListTypography>
           ) : (
             <SettingsListTypography>
@@ -188,14 +193,33 @@ class AdvancedSettingsSection extends React.Component {
             settingsActions.sub.app.setEnableWindowOpeningEngine(toggled)
           }}
           checked={app.enableWindowOpeningEngine} />
-        {Platform.isDarwinMojave() ? (
+        <SettingsListItemSwitch
+          label='Experimental Download Handler'
+          onChange={(evt, toggled) => settingsActions.sub.os.setUseAsyncDownloadHandler(toggled)}
+          checked={userStore.getState().wceUseAsyncDownloadHandler(os.rawUseAsyncDownloadHandler)} />
+        <SettingsListItemSwitch
+          label='Auto mute notifications when suspended'
+          onChange={(evt, toggled) => settingsActions.sub.os.setNotificationsMutedWhenSuspended(toggled)}
+          checked={userStore.getState().wceNotificationsMutedWhenSuspended(os.rawNotificationsMutedWhenSuspended)} />
+        <SettingsListItemSwitch
+          label='Force window repaint on restore (Requires Restart)'
+          onChange={(evt, toggled) => {
+            showRestart()
+            settingsActions.sub.app.setForceWindowPaintOnRestore(toggled)
+          }}
+          checked={app.forceWindowPaintOnRestore} />
+        <SettingsListItemSwitch
+          label='Show "Artificially Persist Cookies" option on accounts'
+          onChange={(evt, toggled) => settingsActions.sub.app.setShowArtificiallyPersistCookies(toggled)}
+          checked={app.showArtificiallyPersistCookies} />
+        {process.platform === 'darwin' ? (
           <SettingsListItemSwitch
-            label='macOS Mojave checkbox fix (Requires Restart)'
+            label='Experimental touchbar support (Requires Restart)'
             onChange={(evt, toggled) => {
               showRestart()
-              settingsActions.sub.app.setDarwinMojaveCheckboxFix(toggled)
+              settingsActions.sub.app.setTouchBarSupportEnabled(toggled)
             }}
-            checked={app.darwinMojaveCheckboxFix} />
+            checked={app.touchBarSupportEnabled} />
         ) : undefined}
         <SettingsListItemSelectInline
           label='Concurrent service load limit (Requires Restart)'

@@ -4,8 +4,6 @@ import alt from '../alt'
 import actions from './userActions'
 import { WaveboxHTTP } from 'Server'
 import { ipcRenderer } from 'electron'
-import semver from 'semver'
-import pkg from 'package.json'
 import ParallelHttpTracker from 'shared/AltStores/ParallelHttpTracker'
 import TakeoutService from './TakeoutService'
 import WaveboxAuthProviders from 'shared/Models/WaveboxAuthProviders'
@@ -17,7 +15,9 @@ import MicrosoftAuth from 'shared/Models/ACAccounts/Microsoft/MicrosoftAuth'
 import {
   EXTENSION_AUTO_UPDATE_INTERVAL,
   WIRE_CONFIG_AUTO_UPDATE_INTERVAL,
-  USER_PROFILE_SYNC_INTERVAL
+  USER_PROFILE_SYNC_INTERVAL,
+  USER_PROFILE_SYNC_THROTTLE,
+  USER_PROFILE_SYNC_RETRY
 } from 'shared/constants'
 import {
   WB_AUTH_WAVEBOX
@@ -37,23 +37,8 @@ class UserStore extends RendererUserStore {
     this.profileAutoUploader = null
     this.userProfileUpload = new ParallelHttpTracker(ParallelHttpTracker.PARALLEL_MODES.LAST_WINS, 'UploadUserProfile')
     this.userProfilesFetch = new ParallelHttpTracker(ParallelHttpTracker.PARALLEL_MODES.STRICT_SINGLETON, 'FetchUserProfiles')
-
-    /* ****************************************/
-    // Extensions
-    /* ****************************************/
-
-    /**
-    * @return all the extensions supported in this version
-    */
-    this.supportedExtensionList = () => {
-      return this.extensionList().filter((ext) => {
-        try {
-          return semver.gte(pkg.version, ext.minVersion)
-        } catch (ex) {
-          return false
-        }
-      })
-    }
+    this.userProfileUploadAfter = null
+    this.userProfileRetryUpload = null
 
     /* ****************************************/
     // Listeners
@@ -88,6 +73,7 @@ class UserStore extends RendererUserStore {
       handleStartAutoUploadUserProfile: actions.START_AUTO_UPLOAD_USER_PROFILE,
       handleStopAutoUploadUserProfile: actions.STOP_AUTO_UPLOAD_USER_PROFILE,
       handleUploadUserProfile: actions.UPLOAD_USER_PROFILE,
+      handleUploadUserProfileAfter: actions.UPLOAD_USER_PROFILE_AFTER,
       handleFetchUserProfiles: actions.FETCH_USER_PROFILES,
       handleRestoreUserProfile: actions.RESTORE_USER_PROFILE
     })
@@ -323,8 +309,22 @@ class UserStore extends RendererUserStore {
     this.profileAutoUploader = null
   }
 
-  handleUploadUserProfile () {
+  handleUploadUserProfile ({ force }) {
     if (!this.user.enableProfileSync) { this.preventDefault(); return }
+    if (force === false) {
+      const cancel = this.userProfileUpload.inflight ||
+        new Date().getTime() - this.userProfileUpload.timestamp < USER_PROFILE_SYNC_THROTTLE
+
+      if (cancel) {
+        this.preventDefault()
+        clearTimeout(this.userProfileRetryUpload)
+        this.userProfileRetryUpload = setTimeout(() => {
+          actions.uploadUserProfile.defer()
+        }, USER_PROFILE_SYNC_RETRY)
+        return
+      }
+    }
+    clearTimeout(this.userProfileRetryUpload)
 
     const trackingId = this.userProfileUpload.startRequest()
     Promise.resolve()
@@ -347,6 +347,15 @@ class UserStore extends RendererUserStore {
         this.userProfileUpload.finishRequestError(trackingId, err.status)
         this.emitChange()
       })
+  }
+
+  handleUploadUserProfileAfter ({ wait }) {
+    this.preventDefault()
+
+    clearTimeout(this.uploadUserProfileAfter)
+    this.uploadUserProfileAfter = setTimeout(() => {
+      actions.uploadUserProfile.defer()
+    }, wait)
   }
 
   handleFetchUserProfiles ({ loadingHash, successHash, failureHash }) {

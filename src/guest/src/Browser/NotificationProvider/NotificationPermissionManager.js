@@ -1,5 +1,4 @@
 import { ipcRenderer } from 'electron'
-import { URL } from 'whatwg-url'
 import {
   DISALLOWED_HTML5_NOTIFICATION_HOSTS,
   ALLOWED_HTML5_NOTIFICATION_HOSTS
@@ -66,13 +65,13 @@ class NotificationPermissionManager {
   * @return a sanitized version of the protocl such as http:
   */
   _getProtocolFromUrl (u) {
-    const purl = new URL(u)
+    const purl = new window.URL(u)
     return purl.protocol
   }
 
   /**
   * @param domain: the domain to query for
-  * @return true if this domain is always disablled, false otherwise
+  * @return true if this domain is always disabled, false otherwise
   */
   _isDomainAlwaysDisallowed (domain) {
     return !!DISALLOWED_HTML5_NOTIFICATION_HOSTS.find((dis) => domain.indexOf(dis) !== -1)

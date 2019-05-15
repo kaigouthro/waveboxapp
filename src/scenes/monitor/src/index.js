@@ -2,11 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import Provider from 'Scenes/Provider'
 import monitorActions from 'stores/monitor/monitorActions'
-import { webFrame } from 'electron'
-
-// Prevent zooming
-webFrame.setVisualZoomLevelLimits(1, 1)
-webFrame.setLayoutZoomLevelLimits(1, 1)
+import TopLevelErrorBoundary from 'wbui/TopLevelErrorBoundary'
 
 // Load what we have in the db
 monitorActions.load()
@@ -28,4 +24,8 @@ document.addEventListener('dragover', (evt) => {
 }, false)
 
 // Render
-ReactDOM.render((<Provider />), document.getElementById('ReactComponent-AppScene'))
+ReactDOM.render((
+  <TopLevelErrorBoundary>
+    <Provider />
+  </TopLevelErrorBoundary>
+), document.getElementById('ReactComponent-AppScene'))

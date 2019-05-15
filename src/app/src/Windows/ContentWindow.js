@@ -6,6 +6,10 @@ import { WindowOpeningHandler } from './WindowOpeningEngine'
 import { GuestWebPreferences } from 'WebContentsManager'
 import querystring from 'querystring'
 import ElectronWebContentsWillNavigateShim from 'ElectronTools/ElectronWebContentsWillNavigateShim'
+import WaveboxAppCommandKeyTracker from 'WaveboxApp/WaveboxAppCommandKeyTracker'
+import { WB_ATTEMPT_FULL_QUIT_KEYBOARD_ACCEL } from 'shared/ipcEvents'
+import { settingsStore } from 'stores/settings'
+import NavigationTouchBarProvider from './NavigationTouchBarProvider'
 
 const privTabMetaInfo = Symbol('tabMetaInfo')
 const privGuestWebPreferences = Symbol('privGuestWebPreferences')
@@ -64,12 +68,19 @@ class ContentWindow extends WaveboxWindow {
   */
   generateWindowPosition (parentWindow) {
     if (!parentWindow) { return undefined }
-    if (parentWindow.isFullScreen() || parentWindow.isMaximized()) { return { center: true } }
+    if (parentWindow.isFullScreen()) {
+      return { center: true }
+    }
 
     const [x, y] = parentWindow.getPosition()
     const [width, height] = parentWindow.getSize()
 
-    return {
+    return parentWindow.isMaximized() ? {
+      x: x + 40,
+      y: y + 40,
+      width: width - 80,
+      height: height - 80
+    } : {
       x: x + 20,
       y: y + 20,
       width: width,
@@ -170,6 +181,7 @@ class ContentWindow extends WaveboxWindow {
       if (contents.getType() === 'webview' && contents.hostWebContents.id === this.window.webContents.id) {
         this[privGuestWebContentsId] = contents.id
         contents.on('new-window', this.handleWebContentsNewWindow)
+        contents.on('did-start-navigation', this.handleWebViewDidStartNavigation)
         ElectronWebContentsWillNavigateShim.on(contents, this.handleWebViewWillNavigate)
         contents.once('destroyed', () => {
           const wcId = this[privGuestWebContentsId]
@@ -223,6 +235,52 @@ class ContentWindow extends WaveboxWindow {
       openingWindowType: this.windowType,
       tabMetaInfo: this[privTabMetaInfo]
     })
+  }
+
+  /**
+  * Handles the webview starting navigation
+  * @param evt: the event that fired
+  * @param targetUrl: the url we're navigating to
+  */
+  handleWebViewDidStartNavigation = (evt, targetUrl) => {
+    WindowOpeningHandler.handleDidStartNavigation(evt, {
+      targetUrl: targetUrl,
+      openingBrowserWindow: this.window,
+      openingWindowType: this.windowType,
+      tabMetaInfo: this[privTabMetaInfo]
+    })
+  }
+
+  /* ****************************************************************************/
+  // Overwritable behaviour
+  /* ****************************************************************************/
+
+  /**
+  * Overwrite. Prevents full quit on the first keystroke
+  * @param accelerator: the accelerator that was used
+  * @return true to prevent behaviour
+  */
+  onBeforeFullQuit (accelerator) {
+    if (WaveboxAppCommandKeyTracker.anyModifierPressed && settingsStore.getState().ui.warnBeforeKeyboardQuitting) {
+      this.window.webContents.send(WB_ATTEMPT_FULL_QUIT_KEYBOARD_ACCEL, accelerator)
+      return true
+    } else {
+      return super.onBeforeFullQuit(accelerator)
+    }
+  }
+
+  /**
+  * Overwrite
+  * @return the top level webcontents
+  */
+  userLinkOpenRequestResponder () { return this.window.webContents }
+
+  /**
+  * Overwrite
+  * @return the touchbar
+  */
+  createTouchbarProvider () {
+    return new NavigationTouchBarProvider(this)
   }
 
   /* ****************************************************************************/
@@ -315,6 +373,16 @@ class ContentWindow extends WaveboxWindow {
   * @return the webcontents which is an editable target
   */
   focusedEditableWebContents () {
+    // Look to see if we are in part of the wavebox ui
+    let purl
+    try {
+      purl = new URL(this.window.webContents.getURL())
+    } catch (ex) { }
+    if (purl && purl.hash.length > 2) { // Normally it's /# so anything more and we're in a screen
+      return this.window.webContents
+    }
+
+    // Return focused tab
     return this[privGuestWebContentsId]
       ? webContents.fromId(this[privGuestWebContentsId])
       : undefined

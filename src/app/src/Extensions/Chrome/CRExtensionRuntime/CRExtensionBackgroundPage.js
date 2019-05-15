@@ -11,11 +11,9 @@ import {
 } from 'shared/crExtensionIpcEvents'
 import Resolver from 'Runtime/Resolver'
 import { SessionManager } from 'SessionManager'
-import CRExtensionMatchPatterns from 'shared/Models/CRExtension/CRExtensionMatchPatterns'
 import ContentPopupWindow from 'Windows/ContentPopupWindow'
 import CRExtensionPopupWindow from './CRExtensionPopupWindow'
 import CRExtensionTab from './CRExtensionTab'
-import WaveboxWindow from 'Windows/WaveboxWindow'
 import { WINDOW_BACKING_TYPES } from 'Windows/WindowBackingTypes'
 import { CRExtensionWebPreferences } from 'WebContentsManager'
 import ElectronWebContentsWillNavigateShim from 'ElectronTools/ElectronWebContentsWillNavigateShim'
@@ -150,26 +148,14 @@ class CRExtensionBackgroundPage {
       (evt) => evt.preventDefault()
     )
 
-    // Update cors via the extension config
-    SessionManager
-      .webRequestEmitterFromPartitionId(this.partitionId)
-      .beforeSendHeaders
-      .onBlocking(undefined, this._handleBeforeSendHeaders)
-
     // Relax cors for extensions that request it
     SessionManager
       .webRequestEmitterFromPartitionId(this.partitionId)
       .headersReceived
       .onBlocking(undefined, this._handleAllUrlHeadersReceived)
 
-    // Don't load the background page until our first tab has been created. For a number of reasons
-    // 1. Performance - we want to get to tabs ASAP
-    // 2. Some extensions expect a tab active on first launch (LP expects this when calling tabs.query)
-    if (WaveboxWindow.allTabIds().length === 0) {
-      evtMain.once(evtMain.WB_TAB_CREATED, this._loadBackgroundPage)
-    } else {
-      this._loadBackgroundPage()
-    }
+    // Start loading
+    this._loadBackgroundPage()
   }
 
   /**
@@ -202,26 +188,6 @@ class CRExtensionBackgroundPage {
   /* ****************************************************************************/
 
   /**
-  * Handles the before send headers event
-  * @param details: the details of the request
-  * @param responder: function to call with updated headers
-  */
-  _handleBeforeSendHeaders = (details, responder) => {
-    if (this.isRunning && this.webContentsId === details.webContentsId) {
-      if (details.resourceType === 'xhr') {
-        return responder({
-          requestHeaders: {
-            ...details.requestHeaders,
-            'Origin': ['null']
-          }
-        })
-      }
-    }
-
-    responder({})
-  }
-
-  /**
   * Handles the headers being received and updates them if required
   * @param details: the details of the request
   * @param responder: function to call with updated headers
@@ -229,24 +195,21 @@ class CRExtensionBackgroundPage {
   _handleAllUrlHeadersReceived = (details, responder) => {
     if (this.isRunning && this.webContentsId === details.webContentsId) {
       if (details.resourceType === 'xhr') {
-        const { protocol, hostname, pathname } = new URL(details.url)
-        if (CRExtensionMatchPatterns.matchUrls(protocol, hostname, pathname, Array.from(this.extension.manifest.permissions))) {
-          const responseHeaders = details.responseHeaders
-          const requestHeaders = details.headers
-          const updatedHeaders = {
-            ...responseHeaders,
-            'access-control-allow-credentials': responseHeaders['access-control-allow-credentials'] || ['true'],
-            'access-control-allow-headers': [].concat(
-              responseHeaders['access-control-allow-headers'],
-              requestHeaders['Access-Control-Request-Headers'],
-              Object.keys(requestHeaders).filter((k) => k.startsWith('X-'))
-            ),
-            'access-control-allow-origin': [
-              `${CR_EXTENSION_PROTOCOL}://${this.extension.id}`
-            ]
-          }
-          return responder({ responseHeaders: updatedHeaders })
+        const responseHeaders = details.responseHeaders
+        const requestHeaders = details.headers
+        const updatedHeaders = {
+          ...responseHeaders,
+          'access-control-allow-credentials': responseHeaders['access-control-allow-credentials'] || ['true'],
+          'access-control-allow-headers': [].concat(
+            responseHeaders['access-control-allow-headers'],
+            requestHeaders['Access-Control-Request-Headers'],
+            Object.keys(requestHeaders).filter((k) => k.toLowerCase().startsWith('x-'))
+          ),
+          'access-control-allow-origin': [
+            `${CR_EXTENSION_PROTOCOL}://${this.extension.id}`
+          ]
         }
+        return responder({ responseHeaders: updatedHeaders })
       }
     }
     return responder({})

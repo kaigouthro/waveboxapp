@@ -67,6 +67,13 @@ class UISettingsActions extends CoreSettingsActions {
   }
 
   /**
+  * @param mode: the new mode
+  */
+  setSidebarActiveIndicator (mode) {
+    this.dispatchUpdate('sidebarActiveIndicator', mode)
+  }
+
+  /**
   * @param mode: the mode to set for the tooltips
   */
   setAccountTooltipMode (mode) {
@@ -133,10 +140,39 @@ class UISettingsActions extends CoreSettingsActions {
   }
 
   /**
+  * @param mode: the mode to show the downloads button in the sidebar
+  */
+  setShowSidebarDownloads (mode) {
+    this.dispatchUpdate('showSidebarDownloads', mode)
+  }
+
+  /**
+  *
+  * @param show: true to show the busy indicator in the sidebar
+  */
+  setShowSidebarBusy (show) {
+    this.dispatchUpdate('showSidebarBusy', show)
+  }
+
+  /**
   * @param mode: the mode to set
   */
   setVibrancyMode (mode) {
     this.dispatchUpdate('vibrancyMode', mode)
+  }
+
+  /**
+  * @param warn: true to warn, false to not
+  */
+  setWarnBeforeKeyboardQuitting (warn) {
+    this.dispatchUpdate('warnBeforeKeyboardQuitting', warn)
+  }
+
+  /**
+  * @param show: true to show the fullscreen helper
+  */
+  setShowFullscreenHelper (show) {
+    this.dispatchUpdate('showFullscreenHelper', show)
   }
 
   /**
